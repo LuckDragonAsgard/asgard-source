@@ -4,7 +4,7 @@
 // Deploy as worker script name: asgard-tools
 // Required bindings: CF_API_TOKEN (secret, optional — falls back to vault)
 
-const VERSION = '1.4.0-smoke-rollback';
+const VERSION = '1.4.1-rollback-only';
 const ACCOUNT_ID = 'a6f47c17811ee2f8b6caeb8f38768c20';
 
 const SYSTEM_PROMPT = `You are Asgard, Luck Dragon's infrastructure AI. You have REAL tools — when Paddy asks you to change something, you actually do it. Don't describe what to do; do it.
@@ -481,64 +481,37 @@ export default {
       }
       try {
         const result = await executeTool('deploy_worker', { worker_name, code, main_module }, env);
-        let smoke = null, rolled_back = false;
         if (result.ok === true) {
           try { await _autoCommitSource(env, worker_name, code); }
           catch (gh) { console.error('GitHub mirror failed:', gh.message); }
-          // Wait briefly for the deploy to propagate, then run smoke test
-          await new Promise(function(r){ setTimeout(r, 2500); });
-          try {
-            const sres = await fetch(request.url.replace(/\/admin\/deploy.*/, '/admin/smoke'));
-            smoke = await sres.json();
-            if (!smoke.ok) {
-              // Auto-rollback to previous SHA on this file
-              try {
-                const ghHist = await fetch('https://api.github.com/repos/PaddyGallivan/asgard-source/commits?path=workers/' + worker_name + '.js&per_page=2',
-                  { headers: { 'Authorization': 'Bearer ' + env.GITHUB_TOKEN, 'Accept': 'application/vnd.github+json', 'User-Agent': 'asgard-deploy' } });
-                const commits = await ghHist.json();
-                if (commits.length >= 2) {
-                  const prevSha = commits[1].sha;
-                  const prevRes = await fetch('https://api.github.com/repos/PaddyGallivan/asgard-source/contents/workers/' + worker_name + '.js?ref=' + prevSha,
-                    { headers: { 'Authorization': 'Bearer ' + env.GITHUB_TOKEN, 'Accept': 'application/vnd.github+json', 'User-Agent': 'asgard-deploy' } });
-                  const prevJ = await prevRes.json();
-                  const prevCode = atob((prevJ.content || '').replace(/\n/g, ''));
-                  await executeTool('deploy_worker', { worker_name, code: prevCode, main_module }, env);
-                  rolled_back = true;
-                }
-              } catch (rb) { console.error('Auto-rollback failed:', rb.message); }
-            }
-          } catch (e) { console.error('Smoke check skipped:', e.message); }
         }
-        return Response.json({ deployed: result.ok === true, smoke, rolled_back, ...result }, { headers: cors });
+        return Response.json({ deployed: result.ok === true, ...result }, { headers: cors });
       } catch (e) {
+        try { await _logError(env, 'asgard-tools', '/admin/deploy', e.message, '', e.stack || ''); } catch {}
         return Response.json({ error: 'Deploy failed', detail: e.message }, { status: 500, headers: cors });
       }
     }
 
 
-    // /admin/smoke — run smoke tests against all known worker domains. Returns {ok, results}.
+    // /admin/smoke — checks last-deploy status of each worker via CF API (avoids same-account loopback).
     if (pathname === '/admin/smoke' && request.method === 'GET') {
-      const checks = [
-        ['asgard',         'https://asgard.pgallivan.workers.dev/health'],
-        ['asgard-ai',      'https://asgard-ai.pgallivan.workers.dev/health'],
-        ['asgard-tools',   'https://asgard-tools.pgallivan.workers.dev/health'],
-        ['asgard-browser', 'https://asgard-browser.pgallivan.workers.dev/health'],
-        ['asgard-vault',   'https://asgard-vault.pgallivan.workers.dev/health'],
-        ['asgard-brain',   'https://asgard-brain.pgallivan.workers.dev/health']
-      ];
-      const results = await Promise.all(checks.map(async function(c){
+      const cfToken = await getCfToken(env);
+      const ACCT = 'a6f47c17811ee2f8b6caeb8f38768c20';
+      const workers = ['asgard','asgard-ai','asgard-tools','asgard-browser','asgard-vault','asgard-brain'];
+      const results = await Promise.all(workers.map(async function(w){
         try {
-          const ctrl = new AbortController();
-          const t = setTimeout(function(){ ctrl.abort(); }, 4000);
-          const r = await fetch(c[1], { signal: ctrl.signal });
-          clearTimeout(t);
-          return { name: c[0], url: c[1], ok: r.ok, status: r.status };
+          const r = await fetch('https://api.cloudflare.com/client/v4/accounts/' + ACCT + '/workers/scripts/' + w + '/deployments',
+            { headers: { 'Authorization': 'Bearer ' + cfToken } });
+          if (!r.ok) return { name: w, ok: false, status: r.status };
+          const j = await r.json();
+          const latest = (j.result && j.result.deployments) ? j.result.deployments[0] : null;
+          return { name: w, ok: !!latest, deployment_id: latest ? latest.id : null, created: latest ? latest.created_on : null };
         } catch (e) {
-          return { name: c[0], url: c[1], ok: false, error: e.message };
+          return { name: w, ok: false, error: e.message };
         }
       }));
       const allOk = results.every(function(r){ return r.ok; });
-      return Response.json({ ok: allOk, count: results.length, passed: results.filter(function(r){return r.ok;}).length, results }, { headers: cors });
+      return Response.json({ ok: allOk, results, note: 'Server-side smoke checks CF deployment status (avoids worker-to-worker loopback). For runtime health, use the dashboard\'s heartbeat panel.' }, { headers: cors });
     }
 
     // /admin/rollback — redeploy a worker from a specific GitHub commit SHA
