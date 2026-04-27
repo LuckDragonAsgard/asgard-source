@@ -11,6 +11,7 @@
 
 import { getAccessToken } from './google-auth.js';
 import {
+  listFolder,
   walkFolder,
   downloadFile,
   exportFile,
@@ -68,6 +69,28 @@ async function handleList(request, env) {
     manifestKey: key,
     files,
   });
+}
+
+
+async function handleListShallow(request, env) {
+  const u = new URL(request.url);
+  const folderId = u.searchParams.get('folder');
+  const account = u.searchParams.get('account') || 'unknown';
+  if (!folderId) return json({ error: 'folder param required' }, { status: 400 });
+
+  const accessToken = await getAccessToken(env.GOOGLE_SA_JSON);
+  const children = await listFolder(accessToken, folderId);
+  const folders = children.filter((c) => c.mimeType === 'application/vnd.google-apps.folder')
+                          .map((c) => ({ id: c.id, name: c.name, modifiedTime: c.modifiedTime }));
+  const files = children.filter((c) => c.mimeType !== 'application/vnd.google-apps.folder')
+                        .map((c) => ({
+                          id: c.id, path: c.name, name: c.name, mimeType: c.mimeType,
+                          size: c.size ? Number(c.size) : null, md5: c.md5Checksum || null,
+                          modifiedTime: c.modifiedTime,
+                          isGoogleNative: c.mimeType.startsWith('application/vnd.google-apps.'),
+                        }));
+  const totalSize = files.reduce((a, f) => a + (f.size || 0), 0);
+  return json({ folderId, account, folderCount: folders.length, fileCount: files.length, totalSize, folders, files });
 }
 
 async function migrateOne(file, account, env, accessToken) {
@@ -211,6 +234,7 @@ export default {
 
     try {
       if (u.pathname === '/list' && request.method === 'GET') return handleList(request, env);
+      if (u.pathname === '/list-shallow' && request.method === 'GET') return handleListShallow(request, env);
       if (u.pathname === '/migrate' && request.method === 'POST')
         return handleMigrate(request, env, ctx);
       if (u.pathname === '/verify' && request.method === 'GET') return handleVerify(request, env);
