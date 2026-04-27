@@ -1,7 +1,7 @@
-// asgard worker v7.9.1 — Recent errors panel in Stats modal — Restored: project tiles, project detail view, tools pane in sidebar
+// asgard worker v7.9.2 — Drive references purged, bridge installers point to GitHub
 // Built on top of v6.5.0 (Claude-style chat layout). PROJECTS list and chat behavior unchanged.
 
-const VERSION = '7.9.1';
+const VERSION = '7.9.2';
 const TOOLS_URL = 'https://asgard-tools.pgallivan.workers.dev';
 
 // Live inventory pulled from CF API + GitHub. 39 projects.
@@ -92,7 +92,7 @@ const PROJECTS = [
     "url": "https://asgard.pgallivan.workers.dev",
     "repo": "?",
     "tag": "CF Worker",
-    "context": "Asgard 7.0 dashboard worker. Source at G:\\\\My Drive\\\\ASGARD\\\\asgard-home-v2.js. Deploy via asgard-tools /admin/deploy. main_module is asgard.js."
+    "context": "Asgard 7.0 dashboard worker. Source on GitHub: PaddyGallivan/asgard-source/workers/asgard.js. Deploy via asgard-tools /admin/deploy. main_module is asgard.js."
   },
   {
     "id": "asgard-tools",
@@ -100,7 +100,7 @@ const PROJECTS = [
     "url": "https://asgard-tools.pgallivan.workers.dev",
     "repo": "?",
     "tag": "CF Worker",
-    "context": "Asgard agent loop worker. Endpoints: /health, /chat/smart, /tools, /admin/deploy. Source at G:\\\\My Drive\\\\ASGARD\\\\asgard-tools-v1.0.2.js. main_module is worker.js."
+    "context": "Asgard agent loop worker. Endpoints: /health, /chat/smart, /tools, /admin/deploy. Source on GitHub: PaddyGallivan/asgard-source/workers/asgard-tools.js. main_module is asgard-tools.js."
   },
   {
     "id": "asgard-brain",
@@ -687,8 +687,9 @@ const HTML = `<!doctype html>
       <h3 style="margin:0 0 8px;font-size:14px">🌐 Chrome Bridge <span id="chromeBridgeStatus" style="font-size:11px;font-weight:400;color:var(--muted)">checking…</span></h3>
       <p style="margin:0 0 10px;font-size:12px;color:var(--text-soft)">Drives your real Chrome with your cookies/sessions. Drag-drop a screenshot, click links, fill forms.</p>
       <ol style="margin:0 0 10px;padding-left:18px;font-size:12px">
-        <li>Download the extension <a href="https://drive.google.com/file/d/1RHsK4HaeKpvbcgRwGkTm2lyiBHm7cgo-/view" target="_blank" style="color:var(--accent)">asgard-bridge-extension-v1.0.0.zip</a> (or grab from your local ASGARD folder)</li>
-        <li>Unzip somewhere permanent (don't move/delete the folder)</li>
+        <li>Download the source repo: <a href="https://codeload.github.com/PaddyGallivan/asgard-source/zip/refs/heads/main" style="color:var(--accent)">asgard-source.zip</a></li>
+        <li>Unzip → use the <code>bridges/asgard-bridge-extension/</code> folder inside</li>
+        <li>Keep the unzipped folder somewhere permanent (don't move/delete it)</li>
         <li>Open <code>chrome://extensions</code> → toggle Developer mode ON → Load unpacked → pick the unzipped folder</li>
         <li>Pin the extension, click it, confirm PIN matches your X-Pin (default 2967), tick Enabled</li>
       </ol>
@@ -702,11 +703,11 @@ const HTML = `<!doctype html>
         <li>Install Python 3.9+ if you don't have it (built in to macOS)</li>
         <li>Run in a terminal: <pre style="background:#0d0d0d;padding:8px 10px;border-radius:6px;font-size:11px;margin:4px 0">pip install pyautogui pillow requests</pre></li>
         <li><strong>macOS only:</strong> System Settings → Privacy → <em>Accessibility</em> AND <em>Screen Recording</em> → add Terminal</li>
-        <li>Download <a href="https://drive.google.com/file/d/1y4FAgPnRFRpVAp2myWzD9HxvgH_vq1OT/view" target="_blank" style="color:var(--accent)">asgard-desktop.py</a> to your home folder</li>
+        <li>Save <a href="https://raw.githubusercontent.com/PaddyGallivan/asgard-source/main/bridges/asgard-desktop.py" target="_blank" style="color:var(--accent)">asgard-desktop.py</a> to your home folder (right-click → Save link as)</li>
         <li>Run: <pre style="background:#0d0d0d;padding:8px 10px;border-radius:6px;font-size:11px;margin:4px 0">python ~/asgard-desktop.py</pre></li>
         <li>Leave the terminal open. Failsafe: drag mouse to top-left corner to abort.</li>
       </ol>
-      <p style="margin:0;font-size:11px;color:var(--muted)">Polls every ~2s. Setup guide: <a href="https://drive.google.com/file/d/196ZUZKJdp1nJ15Px8YXOnRR740RR5B8W/view" target="_blank" style="color:var(--accent)">README in Drive</a>.</p>
+      <p style="margin:0;font-size:11px;color:var(--muted)">Polls every ~2s. Setup guide: <a href="https://github.com/PaddyGallivan/asgard-source/blob/main/bridges/README-desktop.md" target="_blank" style="color:var(--accent)">README on GitHub</a>.</p>
     </div>
 
     <div class="setting setting-row"><button class="btn" id="btnTestBridges">Test bridges now</button><span id="bridgesTestStatus" class="muted"></span></div>
