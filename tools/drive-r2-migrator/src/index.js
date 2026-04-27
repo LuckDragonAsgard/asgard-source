@@ -93,6 +93,23 @@ async function handleListShallow(request, env) {
   return json({ folderId, account, folderCount: folders.length, fileCount: files.length, totalSize, folders, files });
 }
 
+
+// If a key already exists in R2 with a DIFFERENT driveId, append the file's id-suffix to keep both.
+async function dedupeR2Key(env, baseKey, file) {
+  try {
+    const head = await env.ARCHIVE.head(baseKey);
+    if (!head) return baseKey; // free
+    if (head.customMetadata && head.customMetadata.driveId === file.id) return baseKey; // same file (idempotent overwrite OK)
+    // Collision: insert -<id8> before the extension.
+    const idx = baseKey.lastIndexOf('.');
+    const stem = idx > 0 ? baseKey.slice(0, idx) : baseKey;
+    const ext = idx > 0 ? baseKey.slice(idx) : '';
+    return `${stem}-${file.id.slice(-8)}${ext}`;
+  } catch {
+    return baseKey;
+  }
+}
+
 async function migrateOne(file, account, env, accessToken) {
   // Build R2 key
   const baseKey = `${account}/${file.path}`.replace(/\\/g, '/');
@@ -114,6 +131,7 @@ async function migrateOne(file, account, env, accessToken) {
     contentLength = body.byteLength;
   }
 
+  r2Key = await dedupeR2Key(env, r2Key, file);
   await env.ARCHIVE.put(r2Key, body, {
     httpMetadata: { contentType: mimeForStore },
     customMetadata: {
