@@ -127,8 +127,9 @@ async function migrateOne(file, account, env, accessToken) {
     mimeForStore = exportMime;
   } else {
     const resp = await downloadFile(accessToken, file.id);
-    body = await resp.arrayBuffer();
-    contentLength = body.byteLength;
+    // Stream Drive response directly to R2 — avoids loading large files into memory.
+    body = resp.body;
+    contentLength = file.size || null;
   }
 
   r2Key = await dedupeR2Key(env, r2Key, file);
