@@ -1,7 +1,7 @@
-// asgard worker v7.8.3 — D1 product hub: PROJECTS now loads live from asgard-brain.products — Restored: project tiles, project detail view, tools pane in sidebar
+// asgard worker v7.9.0 — Smoke test + Rollback UI in Deploy modal — Restored: project tiles, project detail view, tools pane in sidebar
 // Built on top of v6.5.0 (Claude-style chat layout). PROJECTS list and chat behavior unchanged.
 
-const VERSION = '7.8.4';
+const VERSION = '7.9.0';
 const TOOLS_URL = 'https://asgard-tools.pgallivan.workers.dev';
 
 // Live inventory pulled from CF API + GitHub. 39 projects.
@@ -718,8 +718,13 @@ const HTML = `<!doctype html>
   <div class="modal-body">
     <div class="setting"><label>Worker name</label><input type="text" id="deployName" placeholder="asgard"></div>
     <div class="setting"><label>main_module</label><input type="text" id="deployMain" placeholder="worker.js or asgard.js" value="worker.js"></div>
-    <div class="setting"><label>Source code</label><textarea id="deployCode" rows="18" placeholder="export default { async fetch(req, env) { return new Response('hi'); } };"></textarea></div>
+    <div class="setting"><label>Source code</label><textarea id="deployCode" rows="14" placeholder="export default { async fetch(req, env) { return new Response('hi'); } };"></textarea></div>
     <div class="setting setting-row"><button class="btn-primary" id="btnDeploy">Deploy</button><span id="deployStatus" class="muted"></span></div>
+    <hr style="border:0;border-top:1px solid var(--border);margin:18px 0">
+    <div class="setting setting-row"><button class="btn" id="btnSmoke">🩺 Run smoke test</button><span id="smokeStatus" class="muted"></span></div>
+    <div id="smokeResults" style="font-size:11px;font-family:'Menlo',Consolas,monospace;color:var(--text-soft);margin:6px 0 14px"></div>
+    <div class="setting"><label>Rollback — recent versions of this worker</label><button class="btn" id="btnLoadCommits" style="margin-top:4px">Load recent commits for "<span id="rbWorkerLabel">asgard</span>"</button></div>
+    <div id="rollbackList" style="font-size:11px;color:var(--text-soft);margin:6px 0"></div>
   </div>
 </div>
 
@@ -980,6 +985,12 @@ const els = {
   deployCode: document.getElementById('deployCode'),
   btnDeploy: document.getElementById('btnDeploy'),
   deployStatus: document.getElementById('deployStatus'),
+  btnSmoke: document.getElementById('btnSmoke'),
+  smokeStatus: document.getElementById('smokeStatus'),
+  smokeResults: document.getElementById('smokeResults'),
+  btnLoadCommits: document.getElementById('btnLoadCommits'),
+  rbWorkerLabel: document.getElementById('rbWorkerLabel'),
+  rollbackList: document.getElementById('rollbackList'),
   bridgesModal: document.getElementById('bridgesModal'),
   chromeBridgeStatus: document.getElementById('chromeBridgeStatus'),
   desktopBridgeStatus: document.getElementById('desktopBridgeStatus'),
@@ -1413,6 +1424,12 @@ function openModal(id) {
     probeBridge('paddy-desktop', els.desktopBridgeStatus);
     if (els.btnTestBridges) els.btnTestBridges.onclick = testBridges;
   }
+  if (id === 'deployModal') {
+    if (els.btnSmoke) els.btnSmoke.onclick = runSmokeTest;
+    if (els.btnLoadCommits) els.btnLoadCommits.onclick = loadRecentCommits;
+    // Default the rollback worker name to the current deployName field
+    if (els.deployName && els.rbWorkerLabel) els.rbWorkerLabel.textContent = els.deployName.value || 'asgard';
+  }
   // Move focus into the modal for keyboard users
   setTimeout(function(){
     var first = el.querySelector('input, textarea, select, button:not(.modal-close)');
@@ -1494,6 +1511,80 @@ async function loadStats() {
     els.statsBody.innerHTML = html;
   } catch (e) {
     els.statsBody.innerHTML = '<div style="color:var(--bad)">Stats fetch failed: ' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+async function runSmokeTest() {
+  els.smokeStatus.textContent = 'Running...';
+  els.smokeResults.innerHTML = '';
+  try {
+    var r = await fetch(TOOLS_URL + '/admin/smoke');
+    var d = await r.json();
+    els.smokeStatus.textContent = d.ok ? '✅ All workers green' : '⚠ Some failed';
+    els.smokeStatus.style.color = d.ok ? 'var(--good)' : 'var(--bad)';
+    var html = '';
+    (d.results || []).forEach(function(rr){
+      var icon = rr.ok ? '✅' : '❌';
+      html += '<div>' + icon + ' ' + escapeHtml(rr.name) + (rr.deployment_id ? ' · <span style="color:var(--muted)">' + rr.deployment_id.substring(0,8) + ' · ' + (rr.created || '').substring(0,10) + '</span>' : (rr.error ? ' <span style="color:var(--bad)">' + escapeHtml(rr.error) + '</span>' : '')) + '</div>';
+    });
+    els.smokeResults.innerHTML = html;
+  } catch (e) {
+    els.smokeStatus.textContent = 'Failed: ' + e.message;
+    els.smokeStatus.style.color = 'var(--bad)';
+  }
+}
+
+async function loadRecentCommits() {
+  var worker = (els.deployName.value || 'asgard').trim();
+  els.rbWorkerLabel.textContent = worker;
+  els.rollbackList.innerHTML = '<span class="muted">Loading...</span>';
+  try {
+    var r = await fetch('https://api.github.com/repos/PaddyGallivan/asgard-source/commits?path=workers/' + worker + '.js&per_page=10');
+    var commits = await r.json();
+    if (!Array.isArray(commits) || !commits.length) {
+      els.rollbackList.innerHTML = '<span class="muted">No commits found for workers/' + escapeHtml(worker) + '.js</span>';
+      return;
+    }
+    var html = '';
+    commits.forEach(function(c, i){
+      var msg = (c.commit && c.commit.message) || '';
+      var short = c.sha.substring(0, 8);
+      var when = (c.commit && c.commit.author && c.commit.author.date) || '';
+      html += '<div style="padding:6px 0;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px">' +
+              '<code style="background:var(--panel2);padding:2px 6px;border-radius:4px;font-size:10px">' + short + '</code>' +
+              '<span style="flex:1;font-size:11px">' + escapeHtml(msg.slice(0, 80)) + '</span>' +
+              '<span class="muted" style="font-size:10px">' + when.substring(5,16) + '</span>' +
+              (i === 0 ? '<span class="muted" style="font-size:10px">(current)</span>' : '<button class="btn" data-rb-sha="' + c.sha + '" data-rb-worker="' + worker + '" style="font-size:10px;padding:3px 8px">Restore</button>') +
+              '</div>';
+    });
+    els.rollbackList.innerHTML = html;
+    els.rollbackList.querySelectorAll('[data-rb-sha]').forEach(function(b){
+      b.addEventListener('click', function(){ rollbackTo(b.getAttribute('data-rb-worker'), b.getAttribute('data-rb-sha')); });
+    });
+  } catch (e) {
+    els.rollbackList.innerHTML = '<span style="color:var(--bad)">Load failed: ' + escapeHtml(e.message) + '</span>';
+  }
+}
+
+async function rollbackTo(worker, sha) {
+  if (!confirm('Roll ' + worker + ' back to commit ' + sha.substring(0,8) + '?')) return;
+  els.rollbackList.innerHTML = '<span class="muted">Rolling back...</span>';
+  try {
+    var main = worker === 'asgard' ? 'asgard.js' : 'worker.js';
+    var r = await fetch(TOOLS_URL + '/admin/rollback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Pin': loadPin() },
+      body: JSON.stringify({ worker_name: worker, sha: sha, main_module: main })
+    });
+    var d = await r.json();
+    if (d.rolled_back) {
+      els.rollbackList.innerHTML = '<span style="color:var(--good)">✅ Rolled ' + escapeHtml(worker) + ' back to ' + sha.substring(0,8) + '</span>';
+      setTimeout(loadRecentCommits, 2000);
+    } else {
+      els.rollbackList.innerHTML = '<span style="color:var(--bad)">❌ ' + escapeHtml(JSON.stringify(d).substring(0, 300)) + '</span>';
+    }
+  } catch (e) {
+    els.rollbackList.innerHTML = '<span style="color:var(--bad)">Error: ' + escapeHtml(e.message) + '</span>';
   }
 }
 
