@@ -1,5 +1,5 @@
 // asgard-ai v5.7.2-stopgap-v11-tools: multi-provider (Anthropic/OpenAI/Gemini) + DALL-E + vision
-const VERSION = '5.8.4-errors-log';
+const VERSION = '5.8.5-drive-share';
 const WORKER_NAME = "asgard-ai";
 
 // --- PIN auth helper (v1.1.0 security patch) ---
@@ -1116,6 +1116,39 @@ async function handleDriveLdMkdir(request, env) {
   let data; try { data = JSON.parse(text); } catch { data = { raw: text.slice(0,400) }; }
   if (!r.ok) return err("drive " + r.status + ": " + JSON.stringify(data).slice(0,300), 502);
   return json({ ok: true, id: data.id, name: data.name, parents: data.parents, url: data.webViewLink });
+}
+
+
+async function handleDriveLdShare(request, env) {
+  if (!env.LD_GOOGLE_REFRESH_TOKEN) return err("LD_GOOGLE_REFRESH_TOKEN missing", 400);
+  const body = await request.json().catch(() => ({}));
+  const { file_id, email, role = "reader", sendNotificationEmail = false } = body;
+  if (!file_id || !email) return err("file_id and email required", 400);
+  const access = await _agentLdAccessToken(env);
+  const r = await fetch(
+    "https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(file_id) + "/permissions?supportsAllDrives=true&sendNotificationEmail=" + (sendNotificationEmail ? "true" : "false"),
+    { method: "POST",
+      headers: { "Authorization": "Bearer " + access, "Content-Type": "application/json" },
+      body: JSON.stringify({ role, type: "user", emailAddress: email }) }
+  );
+  const text = await r.text();
+  let data; try { data = JSON.parse(text); } catch { data = { raw: text.slice(0, 400) }; }
+  if (!r.ok) return err("drive permissions " + r.status + ": " + JSON.stringify(data).slice(0, 300), 502);
+  return json({ ok: true, file_id, email, role, permission_id: data.id, type: data.type });
+}
+
+async function handleDriveLdListRoots(request, env) {
+  if (!env.LD_GOOGLE_REFRESH_TOKEN) return err("LD_GOOGLE_REFRESH_TOKEN missing", 400);
+  const access = await _agentLdAccessToken(env);
+  const q = "'root' in parents and trashed = false and mimeType = 'application/vnd.google-apps.folder'";
+  const r = await fetch(
+    "https://www.googleapis.com/drive/v3/files?q=" + encodeURIComponent(q) + "&fields=files(id,name,modifiedTime,owners(emailAddress))&pageSize=200",
+    { headers: { "Authorization": "Bearer " + access } }
+  );
+  const text = await r.text();
+  let data; try { data = JSON.parse(text); } catch { data = { raw: text.slice(0, 400) }; }
+  if (!r.ok) return err("drive list-roots " + r.status + ": " + JSON.stringify(data).slice(0, 300), 502);
+  return json({ ok: true, count: (data.files||[]).length, folders: data.files || [] });
 }
 
 async function handleDriveLdSearch(request, env) {
@@ -2398,6 +2431,8 @@ export default {
       if (path === "/drive/ld-copy"       && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleDriveLdCopy(request, env); }
       if (path === "/drive/ld-search"     && method === "GET")  return handleDriveLdSearch(request, env);
       if (path === "/drive/ld-move"       && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleDriveLdMove(request, env); }
+      if (path === "/drive/ld-share"      && method === "POST") { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleDriveLdShare(request, env); }
+      if (path === "/drive/ld-list-roots" && method === "GET")  { const _pr=await pinOk(request,env); if(_pr!==true) return pinRequired(_pr); return handleDriveLdListRoots(request, env); }
       if (path === "/drive/search"        && method === "GET")  return handleDriveSearch(request, env);
       if (path === "/google/oauth-start"  && method === "GET")  return handleOauthStart(request, env);
       if (path === "/google/oauth-callback" && method === "GET") return handleOauthCallback(request, env);
