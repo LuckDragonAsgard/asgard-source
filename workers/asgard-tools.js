@@ -4,7 +4,7 @@
 // Deploy as worker script name: asgard-tools
 // Required bindings: CF_API_TOKEN (secret, optional — falls back to vault)
 
-const VERSION = '1.2.0';
+const VERSION = '1.3.0-github-mirror';
 const ACCOUNT_ID = 'a6f47c17811ee2f8b6caeb8f38768c20';
 
 const SYSTEM_PROMPT = `You are Asgard, Luck Dragon's infrastructure AI. You have REAL tools — when Paddy asks you to change something, you actually do it. Don't describe what to do; do it.
@@ -481,6 +481,10 @@ export default {
       }
       try {
         const result = await executeTool('deploy_worker', { worker_name, code, main_module }, env);
+        if (result.ok === true) {
+          try { await _autoCommitSource(env, worker_name, code); }
+          catch (gh) { console.error('GitHub mirror failed:', gh.message); }
+        }
         return Response.json({ deployed: result.ok === true, ...result }, { headers: cors });
       } catch (e) {
         return Response.json({ error: 'Deploy failed', detail: e.message }, { status: 500, headers: cors });
@@ -490,3 +494,31 @@ export default {
     return new Response('Not found', { status: 404, headers: cors });
   }
 };
+
+async function _autoCommitSource(env, worker_name, code) {
+  if (!env.GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing');
+  const owner = 'PaddyGallivan';
+  const repo = 'asgard-source';
+  const path = 'workers/' + worker_name + '.js';
+  const url = 'https://api.github.com/repos/' + owner + '/' + repo + '/contents/' + path;
+  const headers = {
+    'Authorization': 'Bearer ' + env.GITHUB_TOKEN,
+    'Accept': 'application/vnd.github+json',
+    'User-Agent': 'asgard-deploy',
+    'Content-Type': 'application/json'
+  };
+  let sha = null;
+  try {
+    const probe = await fetch(url, { headers });
+    if (probe.ok) { const j0 = await probe.json(); sha = j0.sha; }
+  } catch (e) {}
+  const enc = new TextEncoder();
+  const bytes = enc.encode(code);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  const b64 = btoa(bin);
+  const body = { message: 'auto: deploy ' + worker_name + ' @ ' + new Date().toISOString(), content: b64, branch: 'main' };
+  if (sha) body.sha = sha;
+  const r = await fetch(url, { method: 'PUT', headers, body: JSON.stringify(body) });
+  if (!r.ok) throw new Error('GitHub ' + r.status + ': ' + (await r.text()).slice(0, 200));
+}
