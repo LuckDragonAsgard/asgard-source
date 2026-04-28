@@ -1,7 +1,7 @@
 // asgard worker v7.9.2 — Drive references purged, bridge installers point to GitHub
 // Built on top of v6.5.0 (Claude-style chat layout). PROJECTS list and chat behavior unchanged.
 
-const VERSION = '8.3.0';
+const VERSION = '8.3.1';
 const TOOLS_URL = 'https://asgard-tools.pgallivan.workers.dev';
 
 // Live inventory pulled from CF API + GitHub. 39 projects.
@@ -1571,9 +1571,10 @@ function editProjectFlow(pid) {
     '</div>' +
 
     // Buttons
-    '<div style="display:flex;gap:10px;margin-top:24px;justify-content:flex-end">' +
-      '<button id="efCancel" style="padding:10px 20px;background:var(--panel);border:1px solid var(--border);border-radius:8px;color:var(--text);cursor:pointer">Cancel</button>' +
-      '<button id="efSave" class="primary" style="padding:10px 24px">Save changes</button>' +
+    '<div style="display:flex;align-items:center;gap:10px;margin-top:24px">' +
+      '<span id="efStatus" style="flex:1;font-size:12px;color:var(--text-soft)"></span>' +
+      '<button id="efCancel" style="padding:10px 20px;background:var(--panel);border:1px solid var(--border);border-radius:8px;color:var(--text);cursor:pointer">Close</button>' +
+      '<button id="efSave" class="primary" style="padding:10px 24px">Save now</button>' +
     '</div>' +
   '</div>';
 
@@ -1583,12 +1584,15 @@ function editProjectFlow(pid) {
   function n(id) { return parseFloat(g(id).value) || 0; }
   function s(id) { return (g(id).value || '').trim(); }
 
-  document.getElementById('efCancel').onclick = function(){ document.body.removeChild(overlay); };
-  overlay.onclick = function(e){ if (e.target === overlay) document.body.removeChild(overlay); };
+  // Auto-save: debounced 800ms after any change
+  var _saveTimer = null;
+  var _saving = false;
 
-  document.getElementById('efSave').onclick = async function() {
-    var btn = document.getElementById('efSave');
-    btn.disabled = true; btn.textContent = 'Saving…';
+  async function doSave() {
+    if (_saving) return;
+    _saving = true;
+    var status_el = document.getElementById('efStatus');
+    if (status_el) { status_el.textContent = 'Saving…'; status_el.style.color = 'var(--text-soft)'; }
     try {
       await _brainWrite(
         'UPDATE products SET project_name=?, category=?, status=?, live_url=?, github_url=?, description=?, next_action=?, recommendations=?, tech_stack=?, key_features=?, income_priority=?, progress_pct=?, cash_spent=?, cash_earned=?, hours_needed=?, revenue_y1=?, revenue_y2=?, revenue_y3=?, revenue_y4=?, revenue_y5=?, revenue_y6=?, revenue_y7=?, revenue_y8=?, revenue_y9=?, revenue_y10=?, last_updated=? WHERE id=?',
@@ -1599,13 +1603,42 @@ function editProjectFlow(pid) {
          n('rev_y6'), n('rev_y7'), n('rev_y8'), n('rev_y9'), n('rev_y10'),
          new Date().toISOString().split('T')[0], p.rawId]
       );
-      document.body.removeChild(overlay);
-      await loadProductsFromBrain();
-      render();
+      if (status_el) { status_el.textContent = 'Saved ✓'; status_el.style.color = 'var(--good)'; }
+      // Quietly refresh projects in background
+      loadProductsFromBrain();
     } catch (e) {
-      btn.disabled = false; btn.textContent = 'Save changes';
-      alert('Save failed: ' + e.message);
+      if (status_el) { status_el.textContent = 'Save failed: ' + e.message; status_el.style.color = 'var(--bad)'; }
     }
+    _saving = false;
+  }
+
+  function schedSave() {
+    clearTimeout(_saveTimer);
+    var status_el = document.getElementById('efStatus');
+    if (status_el) { status_el.textContent = 'Unsaved…'; status_el.style.color = 'var(--text-soft)'; }
+    _saveTimer = setTimeout(doSave, 800);
+  }
+
+  // Wire every input/select/textarea to auto-save
+  overlay.querySelectorAll('input,select,textarea').forEach(function(el){
+    el.addEventListener('input', schedSave);
+    el.addEventListener('change', schedSave);
+  });
+
+  document.getElementById('efCancel').onclick = async function(){
+    clearTimeout(_saveTimer);
+    await doSave(); // flush any pending save before closing
+    document.body.removeChild(overlay);
+    render();
+  };
+  overlay.onclick = function(e){
+    if (e.target === overlay) document.getElementById('efCancel').onclick();
+  };
+  document.getElementById('efSave').onclick = async function(){
+    clearTimeout(_saveTimer);
+    await doSave();
+    document.body.removeChild(overlay);
+    render();
   };
 }
 
