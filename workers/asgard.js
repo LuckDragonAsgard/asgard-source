@@ -814,10 +814,21 @@ let PROJECTS = [];
 const BRAIN_URL = 'https://asgard-brain.pgallivan.workers.dev';
 async function loadProductsFromBrain() {
   try {
-    // Public read — no PIN needed. Falls back to direct brain query if /products is unavailable.
-    var r = await fetch('/products');
-    if (!r.ok) throw new Error('public /products failed: ' + r.status);
+    // Call asgard-brain directly from client (CF blocks worker→worker same-zone fetches).
+    // PIN from localStorage is required — guests without a PIN see no products.
+    var pin = loadPin() || '';
+    var r = await fetch('https://asgard-brain.pgallivan.workers.dev/d1/query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
+      body: JSON.stringify({
+        sql: 'SELECT id, project_name, category, status, live_url, tech_stack, description, next_action, progress_pct, revenue_y1, revenue_y2, revenue_y3, revenue_y4, revenue_y5, revenue_y6, revenue_y7, revenue_y8, revenue_y9, revenue_y10, income_priority, key_features, github_url, last_updated, cash_spent, cash_earned, hours_needed, recommendations FROM products ORDER BY income_priority DESC, project_name ASC',
+        params: []
+      })
+    });
+    if (!r.ok) throw new Error('brain query failed: ' + r.status);
     var d = await r.json();
+    if (!d.ok) throw new Error('brain error: ' + (d.error || 'unknown'));
+    d = { products: d.results || [] };
     PROJECTS = (d.products || []).map(function(p) {
       return {
         id: 'p' + p.id, rawId: p.id, name: p.project_name,
