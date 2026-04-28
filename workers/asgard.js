@@ -1,7 +1,7 @@
 // asgard worker v7.9.2 — Drive references purged, bridge installers point to GitHub
 // Built on top of v6.5.0 (Claude-style chat layout). PROJECTS list and chat behavior unchanged.
 
-const VERSION = '7.9.5-pin-rotation';
+const VERSION = '7.9.6-handover-route';
 const TOOLS_URL = 'https://asgard-tools.pgallivan.workers.dev';
 
 // Live inventory pulled from CF API + GitHub. 39 projects.
@@ -2133,6 +2133,24 @@ export default {
       return new Response(null, { headers: corsHeaders() });
     }
 
+    if (path === '/handover' || path === '/handover/' || path === '/about') {
+      try {
+        const r = await fetch('https://raw.githubusercontent.com/PaddyGallivan/asgard-source/main/docs/HANDOVER.md', {
+          cf: { cacheTtl: 60, cacheEverything: true }
+        });
+        const md = await r.text();
+        return new Response(md, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/markdown; charset=utf-8',
+            'Cache-Control': 'public, max-age=60',
+            'Access-Control-Allow-Origin': '*'
+          }
+        });
+      } catch (e) {
+        return new Response('Failed to fetch handover: ' + e.message, { status: 502 });
+      }
+    }
     if (path === '/health') {
       return Response.json({ status: 'ok', version: VERSION, timestamp: new Date().toISOString() }, { headers: corsHeaders() });
     }
