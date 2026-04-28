@@ -1,7 +1,7 @@
 // asgard worker v7.9.2 — Drive references purged, bridge installers point to GitHub
 // Built on top of v6.5.0 (Claude-style chat layout). PROJECTS list and chat behavior unchanged.
 
-const VERSION = '8.3.2';
+const VERSION = '8.4.0';
 const TOOLS_URL = 'https://asgard-tools.pgallivan.workers.dev';
 
 // Live inventory pulled from CF API + GitHub. 39 projects.
@@ -2486,11 +2486,20 @@ runPinGate(function() {
 </body>
 </html>`;
 
-function corsHeaders() {
+function corsHeaders(request) {
+  const allowed = [
+    'https://asgard.pgallivan.workers.dev',
+    'https://asgard-ai.pgallivan.workers.dev',
+    'https://asgard-tools.pgallivan.workers.dev',
+    'https://asgard-brain.pgallivan.workers.dev'
+  ];
+  const origin = request && request.headers ? (request.headers.get('Origin') || '') : '';
+  const acao = allowed.includes(origin) ? origin : 'https://asgard.pgallivan.workers.dev';
   return {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': acao,
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type'
+    'Access-Control-Allow-Headers': 'Content-Type, X-Pin',
+    'Vary': 'Origin'
   };
 }
 
@@ -2500,10 +2509,18 @@ export default {
     const path = url.pathname;
 
     if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: corsHeaders() });
+      return new Response(null, { headers: corsHeaders(request) });
     }
 
     if (path === '/products' || path === '/api/products') {
+      const clientPin = request.headers.get('X-Pin') || '';
+      const validPins = [env.PADDY_PIN, env.JACKY_PIN, env.GEORGE_PIN].filter(Boolean);
+      if (!validPins.includes(clientPin)) {
+        return new Response(JSON.stringify({ ok: false, error: 'Unauthorized' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders(request) }
+        });
+      }
       try {
         const r = await fetch('https://asgard-brain.pgallivan.workers.dev/d1/query', {
           method: 'POST',
@@ -2518,8 +2535,8 @@ export default {
           status: 200,
           headers: {
             'Content-Type': 'application/json; charset=utf-8',
-            'Cache-Control': 'public, max-age=30',
-            'Access-Control-Allow-Origin': '*'
+            'Cache-Control': 'no-store',
+            ...corsHeaders(request)
           }
         });
       } catch (e) {
@@ -2554,11 +2571,11 @@ export default {
       }
     }
     if (path === '/health') {
-      return Response.json({ status: 'ok', version: VERSION, timestamp: new Date().toISOString() }, { headers: corsHeaders() });
+      return Response.json({ status: 'ok', version: VERSION, timestamp: new Date().toISOString() }, { headers: corsHeaders(request) });
     }
 
     if (path === '/tools') {
-      return Response.json({ tools: ['http_request', 'get_worker_code', 'deploy_worker', 'get_secret'] }, { headers: corsHeaders() });
+      return Response.json({ tools: ['http_request', 'get_worker_code', 'deploy_worker', 'get_secret'] }, { headers: corsHeaders(request) });
     }
 
     if (path === '/manifest.webmanifest' || path === '/manifest.json') {
@@ -2574,7 +2591,7 @@ export default {
         icons: [
           { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }
         ]
-      }, { headers: { 'Cache-Control': 'public, max-age=3600', ...corsHeaders() } });
+      }, { headers: { 'Cache-Control': 'public, max-age=3600', ...corsHeaders(request) } });
     }
 
     if (path === '/icon.svg') {
@@ -2595,10 +2612,11 @@ export default {
         'X-Content-Type-Options': 'nosniff',
         'Strict-Transport-Security': 'max-age=63072000; includeSubDomains',
         'Referrer-Policy': 'strict-origin-when-cross-origin',
-        'Permissions-Policy': 'camera=(), microphone=(), geolocation=()'
+        'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+        'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src https://asgard-ai.pgallivan.workers.dev https://asgard-tools.pgallivan.workers.dev https://asgard-brain.pgallivan.workers.dev https://asgard-vault.pgallivan.workers.dev; img-src 'self' data: blob:; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'none';"
       } });
     }
 
-    return new Response('Not Found', { status: 404, headers: corsHeaders() });
+    return new Response('Not Found', { status: 404, headers: corsHeaders(request) });
   }
 };
