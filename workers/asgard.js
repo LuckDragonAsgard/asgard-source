@@ -1073,9 +1073,9 @@ function inline(s) {
   s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   s = s.replace(/\*(.+?)\*/g, '<em>$1</em>');
   // links
-  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  s = s.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
   // auto-links
-  s = s.replace(/(https?:\/\/[^\s<>"]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+  s = s.replace(/(https?:\\/\\/[^\\s<>"]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
   return s;
 }
 
