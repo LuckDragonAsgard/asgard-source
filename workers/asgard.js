@@ -1,7 +1,7 @@
 // asgard worker v7.9.2 — Drive references purged, bridge installers point to GitHub
 // Built on top of v6.5.0 (Claude-style chat layout). PROJECTS list and chat behavior unchanged.
 
-const VERSION = '7.10.0-production-tracker';
+const VERSION = '7.10.1-privacy-route';
 const TOOLS_URL = 'https://asgard-tools.pgallivan.workers.dev';
 
 // Live inventory pulled from CF API + GitHub. 39 projects.
@@ -2258,6 +2258,15 @@ export default {
       return new Response(null, { headers: corsHeaders() });
     }
 
+    if (path === '/privacy' || path === '/privacy/') {
+      try {
+        const r = await fetch('https://raw.githubusercontent.com/PaddyGallivan/asgard-source/main/docs/PRIVACY.md', { cf: { cacheTtl: 300, cacheEverything: true } });
+        const md = await r.text();
+        // Render as simple HTML so Chrome Web Store accepts it
+        const html = '<!doctype html><html><head><meta charset="utf-8"><title>Asgard Bridge — Privacy Policy</title><style>body{max-width:720px;margin:40px auto;padding:0 20px;font-family:-apple-system,system-ui,sans-serif;line-height:1.6;color:#222}h1{border-bottom:2px solid #d97757;padding-bottom:8px}h2{margin-top:32px;color:#444}code{background:#f4f4f4;padding:2px 6px;border-radius:3px}a{color:#d97757}</style></head><body><div id="content"></div><script>const md=' + JSON.stringify(md) + ';const html=md.replace(/^# (.+)$/gm,"<h1>$1</h1>").replace(/^## (.+)$/gm,"<h2>$1</h2>").replace(/^### (.+)$/gm,"<h3>$1</h3>").replace(/\\*\\*(.+?)\\*\\*/g,"<strong>$1</strong>").replace(/`([^`]+)`/g,"<code>$1</code>").replace(/^- (.+)$/gm,"<li>$1</li>").replace(/(<li>.*<\/li>\n?)+/g,m=>"<ul>"+m+"</ul>").replace(/\n\n/g,"</p><p>").replace(/^([^<].+)$/gm,m=>m.startsWith("<")?m:"<p>"+m+"</p>");document.getElementById("content").innerHTML=html;</script></body></html>';
+        return new Response(html, { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300', 'Access-Control-Allow-Origin': '*' } });
+      } catch (e) { return new Response('Privacy fetch failed: ' + e.message, { status: 502 }); }
+    }
     if (path === '/handover' || path === '/handover/' || path === '/about') {
       try {
         const r = await fetch('https://raw.githubusercontent.com/PaddyGallivan/asgard-source/main/docs/HANDOVER.md', {
