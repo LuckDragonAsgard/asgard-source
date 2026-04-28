@@ -1,5 +1,5 @@
 // asgard-ai v5.7.2-stopgap-v11-tools: multi-provider (Anthropic/OpenAI/Gemini) + DALL-E + vision
-const VERSION = '5.9.0-auth-hardening';
+const VERSION = '5.9.1-pin-rotation';
 const WORKER_NAME = "asgard-ai";
 
 // --- PIN auth helper (v1.1.0 security patch) ---
@@ -8,7 +8,7 @@ function getValidPins(env) {
   const pins = [];
   if (env.PADDY_PIN) pins.push(env.PADDY_PIN);
   if (env.JACKY_PIN) pins.push(env.JACKY_PIN);
-  if (!pins.length) { console.warn("PADDY_PIN/JACKY_PIN not set"); pins.push('2967','7777'); }
+  if (!pins.length) { console.warn("PADDY_PIN/JACKY_PIN not set"); /* fallbacks removed for security */; }
   return pins;
 }
 async function getRateLimit(env, ip) {
@@ -1668,7 +1668,7 @@ async function agenticGetSecret(key, env) {
   if (env && env[key]) return env[key];
   try {
     const r = await fetch("https://asgard-vault.pgallivan.workers.dev/secret/" + encodeURIComponent(key),
-      { headers: { "X-Pin": (env.PADDY_PIN || "2967") } });
+      { headers: { "X-Pin": (env.PADDY_PIN || '') } });
     if (!r.ok) return null;
     return (await r.text()).trim();
   } catch (e) { return null; }
