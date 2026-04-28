@@ -1068,16 +1068,18 @@ function md(text) {
   return out.join('');
 }
 function inline(s) {
-  var _star = String.fromCharCode(42);
-  var _slash = String.fromCharCode(47);
-  // bold+italic (***text*** and **text** and *text*)
-  s = s.replace(new RegExp(_star+_star+_star+'(.+?)'+_star+_star+_star, 'g'), '<strong><em>$1</em></strong>');
-  s = s.replace(new RegExp(_star+_star+'(.+?)'+_star+_star, 'g'), '<strong>$1</strong>');
-  s = s.replace(new RegExp('['+_star+'](.+?)['+_star+']', 'g'), '<em>$1</em>');
+  var _bs = String.fromCharCode(92);    // backslash
+  var _star = String.fromCharCode(42);  // *
+  var _slash = String.fromCharCode(47); // /
+  var _es = _bs + _star; // escaped star for RegExp: \*
+  // bold+italic: ***text***, **text**, *text*
+  s = s.replace(new RegExp(_es+_es+_es+'(.+?)'+_es+_es+_es, 'g'), '<strong><em>$1</em></strong>');
+  s = s.replace(new RegExp(_es+_es+'(.+?)'+_es+_es, 'g'), '<strong>$1</strong>');
+  s = s.replace(new RegExp(_es+'(.+?)'+_es, 'g'), '<em>$1</em>');
   // links [text](url)
-  s = s.replace(new RegExp('[[]([^[\\]]+)[]][(]([^)]+)[)]', 'g'), '<a href="$2" target="_blank" rel="noopener">$1</a>');
-  // auto-links
-  s = s.replace(new RegExp('(https?:'+_slash+_slash+'[^\\s<>"]+)', 'g'), '<a href="$1" target="_blank" rel="noopener">$1</a>');
+  s = s.replace(new RegExp(_bs+'[([^'+_bs+'['+_bs+'\\]]+)'+_bs+'\\]'+_bs+'\\(([^)]+)'+_bs+'\\)', 'g'), '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  // auto-links https://...
+  s = s.replace(new RegExp('(https?:'+_slash+_slash+'[^'+_bs+'s<>"]+)', 'g'), '<a href="$1" target="_blank" rel="noopener">$1</a>');
   return s;
 }
 
