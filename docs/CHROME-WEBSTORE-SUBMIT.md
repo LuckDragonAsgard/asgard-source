@@ -50,7 +50,7 @@ Browse to and select: **`H:\asgard\asgard-bridge-extension.zip`**. Click Upload.
 **Data usage** — extension does NOT collect any user data. Tick "I do not collect/transmit any of these" for all items.
 
 **Privacy policy URL**:
-> https://raw.githubusercontent.com/PaddyGallivan/asgard-source/main/docs/PRIVACY.md
+> https://asgard.pgallivan.workers.dev/privacy
 
 ### Distribution tab
 
