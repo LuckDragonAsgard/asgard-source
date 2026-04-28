@@ -1,7 +1,7 @@
 // asgard worker v7.9.2 — Drive references purged, bridge installers point to GitHub
 // Built on top of v6.5.0 (Claude-style chat layout). PROJECTS list and chat behavior unchanged.
 
-const VERSION = '8.3.1';
+const VERSION = '8.3.2';
 const TOOLS_URL = 'https://asgard-tools.pgallivan.workers.dev';
 
 // Live inventory pulled from CF API + GitHub. 39 projects.
@@ -1282,6 +1282,7 @@ function render() {
   els.viewTabs.querySelectorAll('.view-tab').forEach(b => {
     b.classList.toggle('active', b.dataset.view === (currentView === 'detail' ? 'projects' : currentView));
   });
+  updateUserPill();
 
   // Topbar context pill
   const conv = getActive();
