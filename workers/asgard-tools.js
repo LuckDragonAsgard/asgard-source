@@ -217,25 +217,32 @@ async function executeTool(toolName, toolInput, env) {
       }
 
       case 'deploy_worker': {
-        const { worker_name, code, main_module = 'worker.js' } = toolInput;
+        const { worker_name, code, main_module = 'worker.js', extra_modules = [] } = toolInput;
         const cfToken = await getCfToken(env);
 
         const metadata = JSON.stringify({
           main_module,
-          keep_bindings: ['secret_text', 'plain_text', 'kv_namespace', 'd1', 'service']
+          keep_bindings: ['secret_text', 'plain_text', 'kv_namespace', 'd1', 'service', 'r2_bucket']
         });
 
         const CRLF = String.fromCharCode(13, 10);
         const boundary = 'AsgardToolsBoundary' + Date.now();
-        const bodyStr = '--' + boundary + CRLF +
+        let bodyStr = '--' + boundary + CRLF +
           'Content-Disposition: form-data; name="metadata"' + CRLF +
           'Content-Type: application/json' + CRLF + CRLF +
           metadata + CRLF +
           '--' + boundary + CRLF +
           'Content-Disposition: form-data; name="' + main_module + '"; filename="' + main_module + '"' + CRLF +
           'Content-Type: application/javascript+module' + CRLF + CRLF +
-          code + CRLF +
-          '--' + boundary + '--';
+          code + CRLF;
+        for (const m of (extra_modules || [])) {
+          if (!m || !m.filename || typeof m.code !== 'string') continue;
+          bodyStr += '--' + boundary + CRLF +
+            'Content-Disposition: form-data; name="' + m.filename + '"; filename="' + m.filename + '"' + CRLF +
+            'Content-Type: application/javascript+module' + CRLF + CRLF +
+            m.code + CRLF;
+        }
+        bodyStr += '--' + boundary + '--';
 
         const r = await fetch(
           `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/workers/scripts/${worker_name}`,
@@ -465,7 +472,7 @@ export default {
       let payload;
       try { payload = await request.json(); }
       catch { return Response.json({ error: 'Invalid JSON' }, { status: 400, headers: cors }); }
-      const { worker_name, code_b64, main_module = 'worker.js' } = payload;
+      const { worker_name, code_b64, main_module = 'worker.js', extra_modules_b64 = [] } = payload;
       if (!worker_name || !code_b64) {
         return Response.json({ error: 'worker_name and code_b64 required' }, { status: 400, headers: cors });
       }
@@ -479,9 +486,21 @@ export default {
       } catch (e) {
         return Response.json({ error: 'Invalid base64', detail: e.message }, { status: 400, headers: cors });
       }
+      let extra_modules = [];
       try {
-        const result = await executeTool('deploy_worker', { worker_name, code, main_module }, env);
-        if (result.ok === true) {
+        for (const em of (extra_modules_b64 || [])) {
+          if (!em || !em.filename || !em.code_b64) continue;
+          const bin = atob(em.code_b64);
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          extra_modules.push({ filename: em.filename, code: new TextDecoder('utf-8').decode(bytes) });
+        }
+      } catch (e) {
+        return Response.json({ error: 'Invalid extra_modules base64', detail: e.message }, { status: 400, headers: cors });
+      }
+      try {
+        const result = await executeTool('deploy_worker', { worker_name, code, main_module, extra_modules }, env);
+        if (result.ok === true && !payload.skip_auto_commit) {
           try { await _autoCommitSource(env, worker_name, code); }
           catch (gh) { console.error('GitHub mirror failed:', gh.message); }
         }
