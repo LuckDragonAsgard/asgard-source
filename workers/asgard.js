@@ -1025,7 +1025,7 @@ function md(text) {
   var codeBlocks = [];
   var tripleRe = new RegExp(BT+BT+BT+'([\\s\\S]*?)'+BT+BT+BT, 'g');
   s = s.replace(tripleRe, function(_, c) {
-    codeBlocks.push('<pre><code>' + escapeHtml(c.replace(/^\n/, '')) + '</code></pre>');
+    codeBlocks.push('<pre><code>' + escapeHtml(c.charAt(0) === '\n' ? c.slice(1) : c) + '</code></pre>');
     return '\x00CODE' + (codeBlocks.length - 1) + '\x00';
   });
   // inline code (single backtick)
