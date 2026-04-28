@@ -1068,14 +1068,16 @@ function md(text) {
   return out.join('');
 }
 function inline(s) {
-  // bold+italic
-  s = s.replace(/\\*\\*\\*(.+?)\\*\\*\\*/g, '<strong><em>$1</em></strong>');
-  s = s.replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>');
-  s = s.replace(/\\*(.+?)\\*/g, '<em>$1</em>');
-  // links
-  s = s.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  var _star = String.fromCharCode(42);
+  var _slash = String.fromCharCode(47);
+  // bold+italic (***text*** and **text** and *text*)
+  s = s.replace(new RegExp(_star+_star+_star+'(.+?)'+_star+_star+_star, 'g'), '<strong><em>$1</em></strong>');
+  s = s.replace(new RegExp(_star+_star+'(.+?)'+_star+_star, 'g'), '<strong>$1</strong>');
+  s = s.replace(new RegExp('['+_star+'](.+?)['+_star+']', 'g'), '<em>$1</em>');
+  // links [text](url)
+  s = s.replace(new RegExp('[[]([^[\\]]+)[]][(]([^)]+)[)]', 'g'), '<a href="$2" target="_blank" rel="noopener">$1</a>');
   // auto-links
-  s = s.replace(/(https?:\\/\\/[^\\s<>"]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+  s = s.replace(new RegExp('(https?:'+_slash+_slash+'[^\\s<>"]+)', 'g'), '<a href="$1" target="_blank" rel="noopener">$1</a>');
   return s;
 }
 
