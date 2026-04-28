@@ -1266,6 +1266,7 @@ function render() {
   modelFooter.textContent = 'Pricing per 1M tokens (approximate). Cross-check provider docs for exact billing.';
   els.modelMenu.appendChild(modelFooter);
 
+  const conv = getActive();
   // Private toggle — only visible in chat view
   if (currentView === 'chat' && conv) {
     els.privateToggleWrap.style.display = '';
@@ -1285,7 +1286,6 @@ function render() {
   updateUserPill();
 
   // Topbar context pill
-  const conv = getActive();
   els.contextSlot.innerHTML = '';
   if (currentView === 'chat' && conv && conv.projectId) {
     const proj = PROJECTS_EFF.find(p => p.id === conv.projectId);
