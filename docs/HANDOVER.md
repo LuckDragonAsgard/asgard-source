@@ -20,6 +20,14 @@ You **will** have, regardless of account:
 - The Drive folder `H:\asgard\` if Mona has connected the same workspace folder
 - All the tokens listed below (paste into env vars or use directly)
 
+
+
+> **Why no PIN in this doc**: This handover lives in a public GitHub repo. Embedding the
+> PIN here would defeat the rotation. Mona shares the current PIN out-of-band — verbally,
+> via password manager, or directly in the Claude chat. With the PIN, you can retrieve
+> any other credential from the vault. Without it, you can still read the handover and
+> understand the architecture.
+
 ## Who you're talking to
 
 **Mona Castle Seddon** (monacastle.seddon@gmail.com). Working on a portfolio of ~34 projects with **Paddy Gallivan** (pgallivan@outlook.com / paddy@luckdragon.io). Asgard is the personal AI hub that fronts the portfolio — runs entirely on Cloudflare's edge, single dashboard with PIN auth, agent loop with 38 tools.
@@ -44,9 +52,9 @@ Mona's preferences:
 
 **Owner account**: paddy@luckdragon.io (Drive, Cloudflare, GitHub via PaddyGallivan user)
 
-**Current PIN**: `fe9fe347f05d43ce` — rotated 2026-04-28. Use as `X-Pin` header on all admin / chat / drive endpoints. Old PIN `2967` is dead. JACKY_PIN is `844c9c1b89a2ed19`.
+**Current PIN**: `<ASK MONA — PIN provided out-of-band, not stored in this doc>` — rotated 2026-04-28. Use as `X-Pin` header on all admin / chat / drive endpoints. Old PIN `2967` is dead. JACKY_PIN is `<ASK MONA — JACKY_PIN provided out-of-band>`.
 
-**Deploy**: `POST https://asgard-tools.pgallivan.workers.dev/admin/deploy` with header `X-Pin: fe9fe347f05d43ce`, body `{worker_name, code_b64, main_module}`. Auto-commits source to GitHub on success.
+**Deploy**: `POST https://asgard-tools.pgallivan.workers.dev/admin/deploy` with header `X-Pin: <ASK MONA — PIN provided out-of-band, not stored in this doc>`, body `{worker_name, code_b64, main_module}`. Auto-commits source to GitHub on success.
 
 ## Live versions (2026-04-28 06:30 UTC)
 
@@ -95,12 +103,12 @@ All 6 green via `/admin/smoke` at session end.
 
 Old PIN `2967` was leaked in public source as fallback. JACKY_PIN `7777` likewise. Today's rotation:
 
-- PADDY_PIN = `fe9fe347f05d43ce` (16-char hex, ~64 bits entropy)
-- JACKY_PIN = `844c9c1b89a2ed19`
+- PADDY_PIN = `<ASK MONA — PIN provided out-of-band, not stored in this doc>` (16-char hex, ~64 bits entropy)
+- JACKY_PIN = `<ASK MONA — JACKY_PIN provided out-of-band>`
 - All worker source has `'2967'`/`'7777'` literal fallbacks **stripped** — endpoints fail closed if env binding missing
 - All 6 workers have PADDY_PIN env binding set; asgard-ai and asgard-brain also have JACKY_PIN
 - Vault (`asgard-vault`) source patched to read PADDY_PIN/JACKY_PIN from env bindings (was hardcoded `['2967', '7777']`)
-- Vault stored values updated: `/secret/PADDY_PIN` returns `fe9fe347f05d43ce`, `/secret/JACKY_PIN` returns `844c9c1b89a2ed19`
+- Vault stored values updated: `/secret/PADDY_PIN` returns `<ASK MONA — PIN provided out-of-band, not stored in this doc>`, `/secret/JACKY_PIN` returns `<ASK MONA — JACKY_PIN provided out-of-band>`
 - Dashboard `loadPin()` fallback changed `'2967'` → `''`. Input placeholder changed `2967` → `enter PIN`. Stored in localStorage key `asgard.pin.v1`.
 
 Rate-limiter on `pinOk()` keyed by IP — 15-min lockout after repeated failures. Session token alternative supported via `X-Session-Token` header.
@@ -137,7 +145,7 @@ This makes the smoke step send `X-Pin`, which lets us later gate `/admin/smoke` 
 
 ### 2. Chrome extension PIN (~30 sec, browser chrome)
 
-Click puzzle-piece icon in Chrome toolbar → Asgard Bridge → paste `fe9fe347f05d43ce` into PIN field → click outside (saves on blur). The popup is browser-chrome UI, not reachable from web pages.
+Click puzzle-piece icon in Chrome toolbar → Asgard Bridge → paste `<ASK MONA — PIN provided out-of-band, not stored in this doc>` into PIN field → click outside (saves on blur). The popup is browser-chrome UI, not reachable from web pages.
 
 ### 3. Revoke GCP service-account keys (~3 min, **needs pgallivan@outlook.com**)
 
@@ -157,7 +165,7 @@ Click puzzle-piece icon in Chrome toolbar → Asgard Bridge → paste `fe9fe347f
 
 ### Deploy paths (priority order)
 1. **Dashboard's Deploy modal** (System sidebar → Deploy worker). Paste source, click Deploy. Auto-commits + smoke tests.
-2. **`POST /admin/deploy`** directly. Header `X-Pin: fe9fe347f05d43ce`. JSON body `{worker_name, code_b64, main_module}`. Pure agent / curl path.
+2. **`POST /admin/deploy`** directly. Header `X-Pin: <ASK MONA — PIN provided out-of-band, not stored in this doc>`. JSON body `{worker_name, code_b64, main_module}`. Pure agent / curl path.
 3. **Rollback button** in Deploy modal — picks last 10 GitHub commits, click to redeploy.
 4. **GitHub Actions** — push to `workers/*.js` on main triggers auto-deploy + smoke gate. Pipeline secret `ASGARD_PIN` is set; full pipeline activates after the workflow YAML in pending task #1 lands.
 
@@ -179,8 +187,8 @@ On long files, prefer one-shot `Write` of full new content over chained `Edit` c
 ## Key facts (everything you'll need to authenticate / authorize)
 
 - **CF Account ID**: `a6f47c17811ee2f8b6caeb8f38768c20` (Luck Dragon Main)
-- **PADDY_PIN**: `fe9fe347f05d43ce`
-- **JACKY_PIN**: `844c9c1b89a2ed19`
+- **PADDY_PIN**: `<ASK MONA — PIN provided out-of-band, not stored in this doc>`
+- **JACKY_PIN**: `<ASK MONA — JACKY_PIN provided out-of-band>`
 - **D1 database UUID**: `b6275cb4-9c0f-4649-ae6a-f1c2e70e940f` (bound to asgard-ai as `env.DB`)
 - **GitHub repo**: `PaddyGallivan/asgard-source` (public; bot token can't write `.github/workflows/`)
 - **GitHub org for portfolio**: `LuckDragonAsgard`
@@ -189,16 +197,16 @@ On long files, prefer one-shot `Write` of full new content over chained `Edit` c
   - Workers-only legacy: `<vault: CF_API_TOKEN — fetch via /secret/CF_API_TOKEN>`
 - **GitHub bot token** (in vault as `GITHUB_TOKEN`, `public_repo` scope): `<vault: GITHUB_TOKEN — fetch via /secret/GITHUB_TOKEN>`
 - **ASGARD KV namespace ID** (vault binding): `7c1121de0dcd49e49270be5ebe762637`
-- **Vault retrieve any secret**: `curl -H "X-Pin: fe9fe347f05d43ce" https://asgard-vault.pgallivan.workers.dev/secret/<KEY>` → returns plain text value
-- **Vault set any secret**: `curl -X PUT -H "X-Pin: fe9fe347f05d43ce" -H "Content-Type: application/json" -d '{"value":"NEWVAL"}' https://asgard-vault.pgallivan.workers.dev/secret/<KEY>`
-- **Vault list keys**: `curl -H "X-Pin: fe9fe347f05d43ce" https://asgard-vault.pgallivan.workers.dev/secrets`
+- **Vault retrieve any secret**: `curl -H "X-Pin: <ASK MONA — PIN provided out-of-band, not stored in this doc>" https://asgard-vault.pgallivan.workers.dev/secret/<KEY>` → returns plain text value
+- **Vault set any secret**: `curl -X PUT -H "X-Pin: <ASK MONA — PIN provided out-of-band, not stored in this doc>" -H "Content-Type: application/json" -d '{"value":"NEWVAL"}' https://asgard-vault.pgallivan.workers.dev/secret/<KEY>`
+- **Vault list keys**: `curl -H "X-Pin: <ASK MONA — PIN provided out-of-band, not stored in this doc>" https://asgard-vault.pgallivan.workers.dev/secrets`
 
 Vault currently holds: `ANTHROPIC_API_KEY`, `ASGARD_DB_ID`, `ASGARD_VAULT_ID`, `CF_ACCOUNT_ID`, `CF_API_TOKEN`, `CF_API_TOKEN_FULL`, `DISCORD_*` (5), `GITHUB_TOKEN`, `GITHUB_TOKEN_LD`, `JACKY_PIN`, `MIGRATION_TOKEN`, `PADDY_PIN`, `RESEND_API_KEY`, `SLY_CF_TOKEN_2026_04_25`, `STRIPE_SECRET_KEY`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPERLEAGUE_V4_STATE_2026_04_25`, `VAULT_ID`, `VERCEL_TOKEN`, `VERCEL_TOKEN_LD`.
 
 ## How to verify health from a fresh chat
 
 ```bash
-PIN=fe9fe347f05d43ce
+PIN=<ASK MONA — PIN provided out-of-band, not stored in this doc>
 
 # Dashboard up?
 curl -s https://asgard.pgallivan.workers.dev/health
@@ -270,4 +278,4 @@ If next Claude is **Claude.ai web** or **Claude Code**:
 
 ---
 
-End of handover. **PIN is `fe9fe347f05d43ce`. Source of truth is GitHub `PaddyGallivan/asgard-source`. System is healthy and secured against the PIN-leak vector.**
+End of handover. **PIN is `<ASK MONA — PIN provided out-of-band, not stored in this doc>`. Source of truth is GitHub `PaddyGallivan/asgard-source`. System is healthy and secured against the PIN-leak vector.**
