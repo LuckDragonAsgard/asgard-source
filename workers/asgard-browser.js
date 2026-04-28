@@ -1,7 +1,7 @@
 // asgard-browser v1.1.0 — Cloudflare Browser Rendering REST API proxy
 // PIN-gated. Calls the Browser Rendering REST API server-side using CF_API_TOKEN_FULLOPS (Browser:Edit).
 
-const VERSION = '1.1.0';
+const VERSION = '1.1.1-pin-rotation';
 const ACCT = 'a6f47c17811ee2f8b6caeb8f38768c20';
 
 const CORS = {
@@ -15,7 +15,7 @@ function jsonResp(data, status, extra) {
     headers: Object.assign({ 'Content-Type': 'application/json' }, CORS, extra || {})
   });
 }
-function pinOk(req, env) { return req.headers.get('X-Pin') === (env.PADDY_PIN || '2967'); }
+function pinOk(req, env) { return req.headers.get('X-Pin') === (env.PADDY_PIN || ''); }
 
 async function brCall(env, op, body) {
   const tok = env.CF_API_TOKEN_FULLOPS || env.CF_API_TOKEN;
