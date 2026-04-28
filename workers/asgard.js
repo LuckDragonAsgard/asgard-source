@@ -1,7 +1,7 @@
 // asgard worker v7.9.2 — Drive references purged, bridge installers point to GitHub
 // Built on top of v6.5.0 (Claude-style chat layout). PROJECTS list and chat behavior unchanged.
 
-const VERSION = '8.2.0';
+const VERSION = '8.3.0';
 const TOOLS_URL = 'https://asgard-tools.pgallivan.workers.dev';
 
 // Live inventory pulled from CF API + GitHub. 39 projects.
@@ -1490,32 +1490,123 @@ async function deleteProjectFlow(pid) {
   }
 }
 
-async function editProjectFlow(pid) {
+function editProjectFlow(pid) {
   var p = (PROJECTS || []).find(function(x){ return x.id === pid; });
   if (!p || !p.rawId) { alert('Cannot edit — project missing rawId'); return; }
-  var name = prompt('Name:', p.name); if (!name) return;
-  var category = prompt('Category:', p.tag || '') || p.tag;
-  var status = prompt('Status (live / in_dev / idea / archived):', p.status || 'idea') || p.status;
-  var url = prompt('Live URL:', p.url || '') || '';
-  var description = prompt('Description:', p.description || '') || '';
-  var next_action = prompt('Next action:', p.next_action || '') || '';
-  var rev_y1 = parseInt(prompt('Year 1 revenue $:', String(p.revenue_y1 || 0)) || '0', 10) || 0;
-  var rev_y2 = parseInt(prompt('Year 2 revenue $:', String(p.revenue_y2 || 0)) || '0', 10) || 0;
-  var rev_y3 = parseInt(prompt('Year 3 revenue $:', String(p.revenue_y3 || 0)) || '0', 10) || 0;
-  var rev_y4 = parseInt(prompt('Year 4 revenue $:', String(p.revenue_y4 || 0)) || '0', 10) || 0;
-  var rev_y5 = parseInt(prompt('Year 5 revenue $:', String(p.revenue_y5 || 0)) || '0', 10) || 0;
-  var prio = parseInt(prompt('Income priority (0-100, higher = more important):', String(p.income_priority || 0)) || '0', 10) || 0;
-  var progress = parseInt(prompt('Progress %:', String(p.progress_pct || 0)) || '0', 10) || 0;
-  try {
-    await _brainWrite(
-      'UPDATE products SET project_name=?, category=?, status=?, live_url=?, description=?, next_action=?, revenue_y1=?, revenue_y2=?, revenue_y3=?, revenue_y4=?, revenue_y5=?, income_priority=?, progress_pct=?, last_updated=? WHERE id=?',
-      [name, category, status, url, description, next_action, rev_y1, rev_y2, rev_y3, rev_y4, rev_y5, prio, progress, new Date().toISOString().split('T')[0], p.rawId]
-    );
-    await loadProductsFromBrain();
-    render();
-  } catch (e) {
-    alert('Edit failed: ' + e.message);
+
+  // Build inline edit modal
+  var overlay = document.createElement('div');
+  overlay.id = 'editOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9000;display:flex;align-items:flex-start;justify-content:center;overflow-y:auto;padding:40px 16px';
+
+  function fld(label, id, val, type, placeholder) {
+    type = type || 'text';
+    placeholder = placeholder || '';
+    if (type === 'textarea') {
+      return '<div class="ef-row"><label class="ef-label">' + label + '</label><textarea class="ef-inp ef-ta" id="ef_' + id + '" rows="3">' + escapeHtml(val || '') + '</textarea></div>';
+    }
+    return '<div class="ef-row"><label class="ef-label">' + label + '</label><input class="ef-inp" id="ef_' + id + '" type="' + type + '" value="' + escapeHtml(String(val || '')) + '" placeholder="' + placeholder + '"></div>';
   }
+  function numFld(label, id, val, placeholder) {
+    return '<div class="ef-row"><label class="ef-label">' + label + '</label><input class="ef-inp" id="ef_' + id + '" type="number" value="' + (val || 0) + '" placeholder="' + (placeholder||'0') + '"></div>';
+  }
+
+  overlay.innerHTML = '<div style="background:var(--bg);border:1px solid var(--border);border-radius:14px;padding:28px;width:100%;max-width:620px;box-shadow:0 8px 40px rgba(0,0,0,.4)">' +
+    '<style>.ef-row{margin-bottom:14px}.ef-label{display:block;font-size:11px;color:var(--text-soft);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px}.ef-inp{width:100%;padding:8px 10px;background:var(--panel);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;box-sizing:border-box}.ef-ta{resize:vertical;font-family:inherit}.ef-section{font-size:11px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:.8px;margin:20px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--border)}.ef-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 16px}.ef-grid .ef-row{margin-bottom:12px}</style>' +
+    '<h2 style="margin:0 0 20px;font-size:17px">Edit: ' + escapeHtml(p.name) + '</h2>' +
+
+    // Core info
+    '<div class="ef-section">Core</div>' +
+    fld('Project name', 'name', p.name) +
+    '<div class="ef-grid">' +
+      fld('Category', 'category', p.tag) +
+      '<div class="ef-row"><label class="ef-label">Status</label><select class="ef-inp" id="ef_status">' +
+        ['live','in_dev','idea','paused','archived'].map(function(s){ return '<option value="' + s + '"' + (p.status===s?' selected':'') + '>' + s + '</option>'; }).join('') +
+      '</select></div>' +
+    '</div>' +
+    fld('Live URL', 'url', p.url, 'url', 'https://') +
+    fld('GitHub repo', 'repo', p.repo, 'text', 'PaddyGallivan/repo-name') +
+
+    // Context
+    '<div class="ef-section">Context</div>' +
+    fld('Description', 'description', p.description, 'textarea') +
+    fld('Next to do', 'next_action', p.next_action, 'textarea') +
+    fld('Recommendations', 'recommendations', p.recommendations, 'textarea') +
+    fld('Tech stack', 'tech_stack', p.tech_stack, 'text', 'e.g. CF Workers, D1, React') +
+    fld('Key features', 'key_features', p.key_features, 'textarea') +
+
+    // Progress & priority
+    '<div class="ef-section">Priority & Progress</div>' +
+    '<div class="ef-grid">' +
+      numFld('Income priority (1-100)', 'priority', p.income_priority) +
+      numFld('Progress %', 'progress', p.progress_pct) +
+    '</div>' +
+
+    // Financials
+    '<div class="ef-section">Financials</div>' +
+    '<div class="ef-grid">' +
+      numFld('Cash spent $', 'cash_spent', p.cash_spent) +
+      numFld('Cash earned $', 'cash_earned', p.cash_earned) +
+      numFld('Hours needed', 'hours_needed', p.hours_needed) +
+    '</div>' +
+
+    // Revenue Y1-Y5
+    '<div class="ef-section">Revenue forecast (Y1–Y5)</div>' +
+    '<div class="ef-grid">' +
+      numFld('Year 1 $', 'rev_y1', p.revenue_y1) +
+      numFld('Year 2 $', 'rev_y2', p.revenue_y2) +
+      numFld('Year 3 $', 'rev_y3', p.revenue_y3) +
+      numFld('Year 4 $', 'rev_y4', p.revenue_y4) +
+      numFld('Year 5 $', 'rev_y5', p.revenue_y5) +
+    '</div>' +
+
+    // Revenue Y6-Y10
+    '<div class="ef-section">Revenue forecast (Y6–10)</div>' +
+    '<div class="ef-grid">' +
+      numFld('Year 6 $', 'rev_y6', p.revenue_y6) +
+      numFld('Year 7 $', 'rev_y7', p.revenue_y7) +
+      numFld('Year 8 $', 'rev_y8', p.revenue_y8) +
+      numFld('Year 9 $', 'rev_y9', p.revenue_y9) +
+      numFld('Year 10 $', 'rev_y10', p.revenue_y10) +
+    '</div>' +
+
+    // Buttons
+    '<div style="display:flex;gap:10px;margin-top:24px;justify-content:flex-end">' +
+      '<button id="efCancel" style="padding:10px 20px;background:var(--panel);border:1px solid var(--border);border-radius:8px;color:var(--text);cursor:pointer">Cancel</button>' +
+      '<button id="efSave" class="primary" style="padding:10px 24px">Save changes</button>' +
+    '</div>' +
+  '</div>';
+
+  document.body.appendChild(overlay);
+
+  function g(id) { return document.getElementById('ef_' + id); }
+  function n(id) { return parseFloat(g(id).value) || 0; }
+  function s(id) { return (g(id).value || '').trim(); }
+
+  document.getElementById('efCancel').onclick = function(){ document.body.removeChild(overlay); };
+  overlay.onclick = function(e){ if (e.target === overlay) document.body.removeChild(overlay); };
+
+  document.getElementById('efSave').onclick = async function() {
+    var btn = document.getElementById('efSave');
+    btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      await _brainWrite(
+        'UPDATE products SET project_name=?, category=?, status=?, live_url=?, github_url=?, description=?, next_action=?, recommendations=?, tech_stack=?, key_features=?, income_priority=?, progress_pct=?, cash_spent=?, cash_earned=?, hours_needed=?, revenue_y1=?, revenue_y2=?, revenue_y3=?, revenue_y4=?, revenue_y5=?, revenue_y6=?, revenue_y7=?, revenue_y8=?, revenue_y9=?, revenue_y10=?, last_updated=? WHERE id=?',
+        [s('name'), s('category'), s('status'), s('url'), s('repo'),
+         s('description'), s('next_action'), s('recommendations'), s('tech_stack'), s('key_features'),
+         n('priority'), n('progress'), n('cash_spent'), n('cash_earned'), n('hours_needed'),
+         n('rev_y1'), n('rev_y2'), n('rev_y3'), n('rev_y4'), n('rev_y5'),
+         n('rev_y6'), n('rev_y7'), n('rev_y8'), n('rev_y9'), n('rev_y10'),
+         new Date().toISOString().split('T')[0], p.rawId]
+      );
+      document.body.removeChild(overlay);
+      await loadProductsFromBrain();
+      render();
+    } catch (e) {
+      btn.disabled = false; btn.textContent = 'Save changes';
+      alert('Save failed: ' + e.message);
+    }
+  };
 }
 
 function renderProjectDetail() {
