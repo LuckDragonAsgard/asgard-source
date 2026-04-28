@@ -4,7 +4,7 @@
 // Deploy as worker script name: asgard-tools
 // Required bindings: CF_API_TOKEN (secret, optional — falls back to vault)
 
-const VERSION = '1.5.1-auth-hardening';
+const VERSION = '1.5.2-pin-rotation';
 const ACCOUNT_ID = 'a6f47c17811ee2f8b6caeb8f38768c20';
 
 const SYSTEM_PROMPT = `You are Asgard, Luck Dragon's infrastructure AI. You have REAL tools — when Paddy asks you to change something, you actually do it. Don't describe what to do; do it.
@@ -111,7 +111,7 @@ const TOOLS = [
 ];
 
 async function getPin(env) {
-  return env.PADDY_PIN || '2967';
+  return env.PADDY_PIN || '';
 }
 
 async function getFromVault(key, pin) {
@@ -429,7 +429,7 @@ export default {
     // /admin/projects — live CF inventory
     if (pathname === '/admin/projects' && request.method === 'GET') {
       const _pin = request.headers.get('X-Pin');
-      if (_pin !== (env.PADDY_PIN || '2967')) return Response.json({error:'Forbidden'}, {status:403, headers:cors});
+      if (_pin !== (env.PADDY_PIN || '')) return Response.json({error:'Forbidden'}, {status:403, headers:cors});
       try {
         const cfToken = await getCfToken(env);
         const ACCT = 'a6f47c17811ee2f8b6caeb8f38768c20';
@@ -448,7 +448,7 @@ export default {
     // /admin/patch — find/replace on a worker source, then redeploy. POST {worker_name, find, replace, main_module}
     if (pathname === '/admin/patch' && request.method === 'POST') {
       const pin = request.headers.get('X-Pin');
-      if (pin !== (env.PADDY_PIN || '2967')) return Response.json({error:'Forbidden'}, {status:403, headers:cors});
+      if (pin !== (env.PADDY_PIN || '')) return Response.json({error:'Forbidden'}, {status:403, headers:cors});
       let body; try { body = await request.json(); } catch { return Response.json({error:'Invalid JSON'}, {status:400, headers:cors}); }
       const { worker_name, find, replace, main_module='worker.js' } = body;
       if (!worker_name || typeof find !== 'string' || typeof replace !== 'string') return Response.json({error:'worker_name, find, replace required'}, {status:400, headers:cors});
@@ -467,7 +467,7 @@ export default {
     // POST { worker_name, code_b64, main_module? }  X-Pin: <pin>
     if (pathname === '/admin/deploy' && request.method === 'POST') {
       const pin = request.headers.get('X-Pin');
-      const expectedPin = env.PADDY_PIN || '2967';
+      const expectedPin = env.PADDY_PIN || '';
       if (pin !== expectedPin) {
         return Response.json({ error: 'Forbidden' }, { status: 403, headers: cors });
       }
@@ -539,7 +539,7 @@ export default {
     // POST { worker_name, sha, main_module? }  X-Pin
     if (pathname === '/admin/rollback' && request.method === 'POST') {
       const pin = request.headers.get('X-Pin');
-      if (pin !== (env.PADDY_PIN || '2967')) return Response.json({error:'Forbidden'}, {status:403, headers:cors});
+      if (pin !== (env.PADDY_PIN || '')) return Response.json({error:'Forbidden'}, {status:403, headers:cors});
       let payload;
       try { payload = await request.json(); } catch { return Response.json({error:'Invalid JSON'}, {status:400, headers:cors}); }
       const { worker_name, sha, main_module = 'worker.js' } = payload;
@@ -564,7 +564,7 @@ export default {
     // /admin/log-error — append to errors D1 table (for observability). Public POST, used by other workers via fetch.
     if (pathname === '/admin/log-error' && request.method === 'POST') {
       const _pin = request.headers.get('X-Pin');
-      if (_pin !== (env.PADDY_PIN || '2967')) return Response.json({ok:false,error:'Forbidden'}, {status:403, headers:cors});
+      if (_pin !== (env.PADDY_PIN || '')) return Response.json({ok:false,error:'Forbidden'}, {status:403, headers:cors});
       let body; try { body = await request.json(); } catch { return Response.json({ok:false}, {status:400, headers:cors}); }
       try {
         await _logError(env, body.worker || 'unknown', body.endpoint || '', body.message || '', body.detail || '', body.stack || '');
