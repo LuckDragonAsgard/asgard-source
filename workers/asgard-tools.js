@@ -4,7 +4,7 @@
 // Deploy as worker script name: asgard-tools
 // Required bindings: CF_API_TOKEN (secret, optional — falls back to vault)
 
-const VERSION = '1.4.1-rollback-only';
+const VERSION = '1.5.0-auth-hardening';
 const ACCOUNT_ID = 'a6f47c17811ee2f8b6caeb8f38768c20';
 
 const SYSTEM_PROMPT = `You are Asgard, Luck Dragon's infrastructure AI. You have REAL tools — when Paddy asks you to change something, you actually do it. Don't describe what to do; do it.
@@ -428,6 +428,8 @@ export default {
 
     // /admin/projects — live CF inventory
     if (pathname === '/admin/projects' && request.method === 'GET') {
+      const _pin = request.headers.get('X-Pin');
+      if (_pin !== (env.PADDY_PIN || '2967')) return Response.json({error:'Forbidden'}, {status:403, headers:cors});
       try {
         const cfToken = await getCfToken(env);
         const ACCT = 'a6f47c17811ee2f8b6caeb8f38768c20';
@@ -514,6 +516,8 @@ export default {
 
     // /admin/smoke — checks last-deploy status of each worker via CF API (avoids same-account loopback).
     if (pathname === '/admin/smoke' && request.method === 'GET') {
+      const _pin = request.headers.get('X-Pin');
+      if (_pin !== (env.PADDY_PIN || '2967')) return Response.json({error:'Forbidden'}, {status:403, headers:cors});
       const cfToken = await getCfToken(env);
       const ACCT = 'a6f47c17811ee2f8b6caeb8f38768c20';
       const workers = ['asgard','asgard-ai','asgard-tools','asgard-browser','asgard-vault','asgard-brain'];
@@ -561,6 +565,8 @@ export default {
 
     // /admin/log-error — append to errors D1 table (for observability). Public POST, used by other workers via fetch.
     if (pathname === '/admin/log-error' && request.method === 'POST') {
+      const _pin = request.headers.get('X-Pin');
+      if (_pin !== (env.PADDY_PIN || '2967')) return Response.json({ok:false,error:'Forbidden'}, {status:403, headers:cors});
       let body; try { body = await request.json(); } catch { return Response.json({ok:false}, {status:400, headers:cors}); }
       try {
         await _logError(env, body.worker || 'unknown', body.endpoint || '', body.message || '', body.detail || '', body.stack || '');
