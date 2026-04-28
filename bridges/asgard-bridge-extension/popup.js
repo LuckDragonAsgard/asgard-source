@@ -5,7 +5,7 @@ async function refresh() {
   const txt = s.statusText || 'idle';
   status.textContent = 'Asgard Bridge — ' + txt;
   dot.className = 'dot ' + txt;
-  document.getElementById('pin').value = s.pin || '2967';
+  document.getElementById('pin').value = s.pin || '';
   document.getElementById('enabled').checked = s.enabled !== false;
 }
 

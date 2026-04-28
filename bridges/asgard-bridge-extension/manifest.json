@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Asgard Bridge",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Lets Asgard drive your Chrome — navigate, screenshot, click, type, extract — using your real logged-in sessions.",
   "permissions": ["scripting", "tabs", "activeTab", "storage", "alarms"],
   "host_permissions": ["<all_urls>"],

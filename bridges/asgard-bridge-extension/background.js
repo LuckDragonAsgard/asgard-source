@@ -3,12 +3,12 @@
 
 const ASGARD_AI = 'https://asgard-ai.pgallivan.workers.dev';
 const POLL_INTERVAL_SEC = 2;
-const DEFAULT_PIN = '2967';
+const DEFAULT_PIN = '';  // PIN must be set in popup; no source fallback
 
 async function getConfig() {
   const stored = await chrome.storage.local.get(['pin', 'enabled']);
   return {
-    pin: stored.pin || DEFAULT_PIN,
+    pin: stored.pin || '',
     enabled: stored.enabled !== false
   };
 }
