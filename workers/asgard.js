@@ -1,7 +1,7 @@
 // asgard worker v7.9.2 — Drive references purged, bridge installers point to GitHub
 // Built on top of v6.5.0 (Claude-style chat layout). PROJECTS list and chat behavior unchanged.
 
-const VERSION = '8.0.0-full-fixes';
+const VERSION = '8.1.0-multi-user';
 const TOOLS_URL = 'https://asgard-tools.pgallivan.workers.dev';
 
 // Live inventory pulled from CF API + GitHub. 39 projects.
@@ -786,6 +786,10 @@ const HTML = `<!doctype html>
           <button class="model-btn" id="modelBtn" type="button"><span id="modelBtnLabel">Sonnet 4.5</span> <span class="caret">▾</span></button>
           <div class="model-menu" id="modelMenu"></div>
         </div>
+        <div id="userPill" style="display:none;align-items:center;gap:6px;padding:5px 12px;background:var(--panel);border:1px solid var(--border);border-radius:999px;font-size:12px;color:var(--text-soft);cursor:pointer" title="Settings" onclick="document.getElementById('sidebarEl').classList.add('open')">
+          <span style="width:7px;height:7px;border-radius:50%;background:var(--good);display:inline-block"></span>
+          <span id="userPillName"></span>
+        </div>
         <div class="view-tabs" id="viewTabs">
           <button class="view-tab" data-view="projects">Projects</button>
           <button class="view-tab active" data-view="chat">Chat</button>
@@ -864,7 +868,7 @@ const SORT_KEY = 'asgard.sort.v1';
 const FACTS_KEY = 'asgard.facts.v1';
 const CLOUD_SYNC_KEY = 'asgard.cloudSync.v1';
 const SYNC_BRAIN_URL = 'https://asgard-brain.pgallivan.workers.dev';
-const SYNC_UID = 'paddy';
+var SYNC_UID = getPinUser();
 
 // ---------- State ----------
 function loadConvos() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; } }
@@ -890,6 +894,22 @@ function loadModel() { return localStorage.getItem(MODEL_KEY) || 'claude-sonnet-
 function saveModel(m) { localStorage.setItem(MODEL_KEY, m); }
 function loadPin() { return localStorage.getItem(PIN_KEY) || ''; }
 function savePin(p) { localStorage.setItem(PIN_KEY, p); }
+function getPinUser() {
+  var p = loadPin();
+  if (!p) return 'user';
+  var prefix = p.slice(0,4);
+  if (prefix === '6d06') return 'paddy';
+  if (prefix === '844c') return 'jacky';
+  if (prefix === '3df4') return 'george';
+  return 'user';
+}
+function getPinName() {
+  var u = getPinUser();
+  if (u === 'paddy') return 'Paddy';
+  if (u === 'jacky') return 'Jacky';
+  if (u === 'george') return 'George';
+  return 'User';
+}
 function loadTheme() { return localStorage.getItem(THEME_KEY) || 'dark'; }
 function saveTheme(t) { localStorage.setItem(THEME_KEY, t); document.documentElement.setAttribute('data-theme', t); }
 function loadDebug() { return localStorage.getItem(DEBUG_KEY) === '1'; }
@@ -1602,8 +1622,8 @@ function openModal(id) {
   els.modalScrim.classList.add('open');
   el.classList.add('open');
   if (id === 'bridgesModal') {
-    probeBridge('paddy', els.chromeBridgeStatus);
-    probeBridge('paddy-desktop', els.desktopBridgeStatus);
+    probeBridge(getPinUser(), els.chromeBridgeStatus);
+    probeBridge(getPinUser() + '-desktop', els.desktopBridgeStatus);
     if (els.btnTestBridges) els.btnTestBridges.onclick = testBridges;
     renderSetupChecklist();
   }
@@ -1636,6 +1656,16 @@ function populateSettings() {
   els.setDebug.checked = loadDebug();
   els.setDebug.onchange = function(){ saveDebug(els.setDebug.checked); render(); };
   els.setPin.value = loadPin();
+  // Update user pill
+  (function() {
+    var name = getPinName();
+    var pill = document.getElementById('userPill');
+    var pillName = document.getElementById('userPillName');
+    if (pill && pillName && loadPin()) {
+      pillName.textContent = name;
+      pill.style.display = 'flex';
+    }
+  })();
   els.setPin.onchange = function(){ savePin(els.setPin.value); };
   els.setSlackChan.value = loadSlackChan();
   els.setSlackChan.onchange = function(){ saveSlackChan(els.setSlackChan.value); };
@@ -1946,13 +1976,13 @@ async function testBridges() {
     var r1 = await fetch('https://asgard-ai.pgallivan.workers.dev/bridge/enqueue', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Pin': loadPin() },
-      body: JSON.stringify({ uid: 'paddy', command: { type: 'screenshot', input: {} } })
+      body: JSON.stringify({ uid: getPinUser(), command: { type: 'screenshot', input: {} } })
     });
     var d1 = await r1.json();
     var r2 = await fetch('https://asgard-ai.pgallivan.workers.dev/bridge/enqueue', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Pin': loadPin() },
-      body: JSON.stringify({ uid: 'paddy-desktop', command: { type: 'screenshot', input: {} } })
+      body: JSON.stringify({ uid: getPinUser() + '-desktop', command: { type: 'screenshot', input: {} } })
     });
     var d2 = await r2.json();
     // Wait 4s for helpers to pick up
@@ -1976,7 +2006,7 @@ async function renderSetupChecklist() {
   var items = [];
   // Chrome bridge
   try {
-    var r = await fetch('https://asgard-ai.pgallivan.workers.dev/bridge/poll?uid=paddy', { headers: { 'X-Pin': loadPin() } });
+    var r = await fetch('https://asgard-ai.pgallivan.workers.dev/bridge/poll?uid=' + encodeURIComponent(getPinUser()), { headers: { 'X-Pin': loadPin() } });
     items.push({ name: 'Chrome bridge installed & polling', ok: r.ok });
   } catch (e) { items.push({ name: 'Chrome bridge installed & polling', ok: false }); }
   // Desktop bridge — check if it polled in the last 5 minutes by enqueueing a no-op and seeing if it's claimed
@@ -2043,7 +2073,7 @@ function buildSystemPrompt(conv) {
   if (!conv || !conv.projectId) return null;
   const proj = PROJECTS_EFF.find(p => p.id === conv.projectId);
   if (!proj) return null;
-  return 'You are Asgard, working specifically on the ' + proj.name + ' project right now. Project context: ' + proj.context + ' Live URL: ' + proj.url + '. Repo: ' + proj.repo + '. Scope all answers and actions to this project unless Paddy explicitly says otherwise.';
+  return 'You are Asgard, working specifically on the ' + proj.name + ' project right now. Project context: ' + proj.context + ' Live URL: ' + proj.url + '. Repo: ' + proj.repo + '. You are currently logged in as ' + getPinName() + '. Scope all answers and actions to this project unless ' + getPinName() + ' explicitly says otherwise.';
 }
 
 async function send(text) {
@@ -2158,7 +2188,7 @@ async function send(text) {
       }
       if (sys) body.system = sys;
       // Pass uid so memory is attributed correctly
-      body.uid = loadPin() ? (loadPin().slice(0,4) === '6d06' ? 'paddy' : loadPin().slice(0,4) === '844c' ? 'jacky' : loadPin().slice(0,4) === '3df4' ? 'george' : 'user') : 'user';
+      body.uid = getPinUser();
     }
     var headers = { 'Content-Type': 'application/json', 'X-Pin': loadPin() };
     const r = await fetch(endpoint, { method: 'POST', headers: headers, body: JSON.stringify(body) });
