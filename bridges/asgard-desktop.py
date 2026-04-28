@@ -31,7 +31,7 @@ except ImportError:
     sys.exit(1)
 
 ASGARD_AI = os.environ.get("ASGARD_AI_URL", "https://asgard-ai.pgallivan.workers.dev")
-PIN = os.environ.get("ASGARD_PIN", "2967")
+PIN = os.environ.get("ASGARD_PIN", "")  # set ASGARD_PIN env or edit before running
 UID = os.environ.get("ASGARD_UID", "paddy-desktop")
 POLL_INTERVAL = float(os.environ.get("POLL_INTERVAL", "2.0"))
 
