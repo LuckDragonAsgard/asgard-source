@@ -1020,25 +1020,25 @@ function escapeHtml(s) {
 }
 function md(text) {
   var BT = String.fromCharCode(96);
+  var NL = String.fromCharCode(10);
   var s = String(text || '');
   // code blocks (triple backtick) — extract before escaping
   var codeBlocks = [];
   var tripleRe = new RegExp(BT+BT+BT+'([\\s\\S]*?)'+BT+BT+BT, 'g');
   s = s.replace(tripleRe, function(_, c) {
     codeBlocks.push('<pre><code>' + escapeHtml(c.charCodeAt(0) === 10 ? c.slice(1) : c) + '</code></pre>');
-    return '\x00CODE' + (codeBlocks.length - 1) + '\x00';
+    return '~~CODE' + (codeBlocks.length - 1) + '~~';
   });
   // inline code (single backtick)
   var singleRe = new RegExp(BT+'([^'+BT+']+)'+BT, 'g');
   s = s.replace(singleRe, function(_, c) { return '<code>' + escapeHtml(c) + '</code>'; });
   // escape remaining HTML (split on CODE placeholders to avoid double-escaping)
-  s = s.split('\x00CODE').map(function(part, i) {
+  s = s.split('~~CODE').map(function(part, i) {
     if (i === 0) return escapeHtml(part);
-    var idx = part.indexOf('\x00');
-    return codeBlocks[parseInt(part.slice(0, idx))] + escapeHtml(part.slice(idx + 1));
+    var idx = part.indexOf('~~');
+    return codeBlocks[parseInt(part.slice(0, idx))] + escapeHtml(part.slice(idx + 2));
   }).join('');
-  var nl = '\n';
-  var lines = s.split(nl);
+  var lines = s.split(NL);
   var out = [];
   var inUl = false, inOl = false;
   function closeList() {
