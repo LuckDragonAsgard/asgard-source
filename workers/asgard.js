@@ -2628,6 +2628,7 @@ async function send(text) {
     var headers = { 'Content-Type': 'application/json', 'X-Pin': loadPin() };
     const r = await fetch(endpoint, { method: 'POST', headers: headers, body: JSON.stringify(body) });
     typingRow.remove();
+    if (r.status === 401) { localStorage.removeItem('asgard.pin.v1'); window.location.href = '/login'; return; }
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
     const reply = data.response || data.reply || data.text || data.content || data.message || '(empty response)';
@@ -2845,18 +2846,24 @@ export default {
       }
     }
     if (path === '/login') {
+      const validPins = [env.PADDY_PIN, env.JACKY_PIN, env.GEORGE_PIN].filter(Boolean);
       if (request.method === 'POST') {
         let pin = '';
         try { const fd = await request.formData(); pin = fd.get('pin') || ''; } catch(e) {}
-        if (pin) {
+        if (pin && validPins.includes(pin)) {
           return new Response(null, { status: 302, headers: {
             'Location': '/',
             'Set-Cookie': 'asgard_pin=' + encodeURIComponent(pin) + '; Path=/; Max-Age=31536000; SameSite=Lax',
             'Cache-Control': 'no-store'
           }});
         }
+        const errMsg = pin ? 'Wrong PIN. Try again.' : '';
+        const lp2 = '<style>*{box-sizing:border-box;margin:0;padding:0}body{background:#12121f;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif}.b{background:#1e1e35;padding:2rem;border-radius:16px;width:300px;text-align:center}h1{color:#fff;font-size:1.25rem;margin:.5rem 0}p{color:#888;font-size:.85rem;margin:.5rem 0 1.2rem}.err{color:#ef4444;font-size:.85rem;margin:.5rem 0}input{width:100%;padding:.75rem;border-radius:8px;border:1px solid #c44;background:#0d0d1a;color:#fff;font-size:1rem;margin-bottom:.75rem}button{width:100%;padding:.75rem;background:#d97757;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer}</style><div class="b"><div style="font-size:2rem">&#x1F409;</div><h1>Asgard</h1>' + (errMsg ? '<p class=err>' + errMsg + '</p>' : '<p>Enter your PIN</p>') + '<form method=POST action=/login><input name=pin type=password placeholder=PIN autocomplete=off autofocus><button>Login</button></form></div>';
+        return new Response('<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Asgard Login</title>' + lp2 + '</html>', {
+          status: 401, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }
+        });
       }
-      const lp = '<style>*{box-sizing:border-box;margin:0;padding:0}body{background:#12121f;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif}.b{background:#1e1e35;padding:2rem;border-radius:16px;width:300px;text-align:center}h1{color:#fff;font-size:1.25rem;margin:.5rem 0}p{color:#888;font-size:.85rem;margin:.5rem 0 1.2rem}input{width:100%;padding:.75rem;border-radius:8px;border:1px solid #444;background:#0d0d1a;color:#fff;font-size:1rem;margin-bottom:.75rem}button{width:100%;padding:.75rem;background:#d97757;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer}</style><div class="b"><div style="font-size:2rem">&#x1F409;</div><h1>Asgard</h1><p>Enter your PIN</p><form method=POST action=/login><input name=pin type=text placeholder=PIN autocomplete=off autofocus><button>Login</button></form></div>';
+      const lp = '<style>*{box-sizing:border-box;margin:0;padding:0}body{background:#12121f;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif}.b{background:#1e1e35;padding:2rem;border-radius:16px;width:300px;text-align:center}h1{color:#fff;font-size:1.25rem;margin:.5rem 0}p{color:#888;font-size:.85rem;margin:.5rem 0 1.2rem}input{width:100%;padding:.75rem;border-radius:8px;border:1px solid #444;background:#0d0d1a;color:#fff;font-size:1rem;margin-bottom:.75rem}button{width:100%;padding:.75rem;background:#d97757;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer}</style><div class="b"><div style="font-size:2rem">&#x1F409;</div><h1>Asgard</h1><p>Enter your PIN</p><form method=POST action=/login><input name=pin type=password placeholder=PIN autocomplete=off autofocus><button>Login</button></form></div>';
       return new Response('<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Asgard Login</title>' + lp + '</html>', {
         headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }
       });
