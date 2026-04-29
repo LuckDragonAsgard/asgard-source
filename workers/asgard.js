@@ -1,15 +1,16 @@
 // asgard worker v7.9.2 — Drive references purged, bridge installers point to GitHub
 // Built on top of v6.5.0 (Claude-style chat layout). PROJECTS list and chat behavior unchanged.
 
-const VERSION = '8.8.2';
+const VERSION = '8.8.0';
 // Auto-login from URL: asgard.pgallivan.workers.dev?pin=XXXXX
 (function(){
   try {
     var _sp = new URLSearchParams(location.search);
     var _pin = _sp.get('pin');
-    if (_pin && _pin.length >= 8) {
+    if (_pin && _pin.length >= 16) {
       localStorage.setItem('asgard.pin.v1', _pin);
-      location.href = location.pathname;
+      // Clean the URL so PIN isn't visible in browser history
+      history.replaceState({}, '', location.pathname);
     }
   } catch(e) {}
 })();
@@ -896,29 +897,7 @@ const HTML = `<!doctype html>
 </div>
 
 <script>
-// URL param PIN auto-login
-(function(){try{var _p=new URLSearchParams(location.search).get('pin');if(_p&&_p.length>=4){localStorage.setItem('asgard.pin.v1',_p);location.href=location.pathname;}}catch(e){}}());
-// PIN overlay — always verify PIN works, show login if not
-(function(){
-  function showOverlay(msg){
-    if(document.getElementById('pinOverlay'))return;
-    var o=document.createElement('div');o.id='pinOverlay';
-    o.style='position:fixed;inset:0;background:#12121f;display:flex;align-items:center;justify-content:center;z-index:99999;font-family:sans-serif';
-    o.innerHTML='<div style="background:#1e1e35;padding:2.5rem;border-radius:16px;text-align:center;min-width:280px;box-shadow:0 8px 32px rgba(0,0,0,0.5)"><div style="font-size:2rem;margin-bottom:0.5rem">\u{1F409}</div><h2 style="color:#fff;margin:0 0 0.25rem;font-size:1.25rem">Asgard</h2><p id="pinMsg" style="color:#f87171;margin:0 0 1rem;font-size:0.8rem">'+msg+'</p><input id="pinEntry" type="text" placeholder="Your PIN" style="padding:0.75rem 1rem;border-radius:8px;border:1px solid #444;background:#12121f;color:#fff;font-size:1rem;width:100%;box-sizing:border-box;margin-bottom:1rem;outline:none"><button id="pinBtn" style="background:#d97757;color:#fff;border:none;padding:0.75rem 2rem;border-radius:8px;cursor:pointer;font-size:1rem;width:100%">Login</button></div>';
-    document.body.appendChild(o);
-    var inp=document.getElementById('pinEntry');var btn=document.getElementById('pinBtn');
-    inp.value=localStorage.getItem('asgard.pin.v1')||'';
-    function doLogin(){var p=inp.value.trim();if(p){localStorage.setItem('asgard.pin.v1',p);location.href=location.pathname;}}
-    btn.onclick=doLogin;inp.onkeydown=function(e){if(e.key==='Enter')doLogin();};inp.focus();inp.select();
-  }
-  document.addEventListener('DOMContentLoaded',function(){
-    var pin=localStorage.getItem('asgard.pin.v1')||'';
-    if(!pin){showOverlay('Enter your PIN to continue');return;}
-    fetch('https://asgard-brain.pgallivan.workers.dev/d1/query',{method:'POST',headers:{'Content-Type':'application/json','X-Pin':pin},body:JSON.stringify({sql:'SELECT 1'})})
-      .then(function(r){if(r.status===403||r.status===401){showOverlay('PIN incorrect — enter your PIN below');}})
-      .catch(function(){});
-  });
-})();
+(function(){try{var c=(document.cookie+';').split(';').map(function(s){return s.trim();}).find(function(s){return s.startsWith('asgard_pin=');});if(c){localStorage.setItem('asgard.pin.v1',decodeURIComponent(c.split('=').slice(1).join('=')));}}catch(e){}})();
 let PROJECTS = [];
 const BRAIN_URL = 'https://asgard-brain.pgallivan.workers.dev';
 async function loadProductsFromBrain() {
@@ -1016,7 +995,7 @@ function loadFilter() { return localStorage.getItem(FILTER_KEY) || 'all'; }
 function saveFilter(f) { localStorage.setItem(FILTER_KEY, f); }
 function loadModel() { return localStorage.getItem(MODEL_KEY) || 'claude-sonnet-4-5'; }
 function saveModel(m) { localStorage.setItem(MODEL_KEY, m); }
-function loadPin() { var c=document.cookie.split(';').map(function(x){return x.trim();}).find(function(x){return x.startsWith('asgard_pin=');}); if(c)return decodeURIComponent(c.split('=')[1]||''); return localStorage.getItem(PIN_KEY) || ''; }
+function loadPin() { return localStorage.getItem(PIN_KEY) || ''; }
 function savePin(p) { localStorage.setItem(PIN_KEY, p); updateUserPill(); }
 function updateUserPill() {
   var pin = loadPin();
@@ -1440,7 +1419,7 @@ function showProjectInfo(id) {
 
   // CF Worker detection
   if (url.indexOf('workers.dev') !== -1) {
-    var wm = (url.indexOf('.pgallivan.workers.dev') !== -1) ? [null, (url.split('//')[1]||'').split('.')[0]] : null;
+    var wm = url.match(/https?:\/\/([^.]+)\.pgallivan\.workers\.dev/);
     if (wm) workerName = wm[1];
     badges += '<span class="pi-badge b-cf">&#x2601; CF Worker</span>';
     stackNotes.push('<strong>Cloudflare Workers</strong> — serverless JS that runs on 300+ edge locations worldwide. No server to manage, instant deploy, free tier up to 100K req/day.');
@@ -1472,7 +1451,7 @@ function showProjectInfo(id) {
   }
   if (ctx.indexOf('digital ocean') !== -1 || ctx.indexOf('digitalocean') !== -1) {
     badges += '<span class="pi-badge b-do">&#x1F30A; DigitalOcean</span>';
-    stackNotes.push('<strong>DigitalOcean</strong> — a VPS/cloud server. Needed for long-running processes, WebSockets that persist, or anything that requires a persistent server (Cloudflare Workers time out after 30s and cannot hold open connections for more than a few seconds).');
+    stackNotes.push('<strong>DigitalOcean</strong> — a VPS/cloud server. Needed for long-running processes, WebSockets that persist, or anything that requires a persistent server (Cloudflare Workers time out after 30s and can\'t hold open connections for more than a few seconds).');
   }
   if (ghUrl) {
     badges += '<span class="pi-badge b-gh">&#x2387; GitHub</span>';
@@ -1486,7 +1465,7 @@ function showProjectInfo(id) {
   var hours = p.hours_needed || 0;
   var prio = p.income_priority || 0;
 
-  var html = '<div class="pi-overlay" id="piOverlay" onclick="if(event.target===this)closeProjInfo()">';
+  var html = '<div class="pi-overlay" id="piOverlay" onclick="if(event.target.id===\'piOverlay\')closeProjInfo()">';
   html += '<div class="pi-modal">';
   html += '<button class="pi-close" onclick="closeProjInfo()">&#x2715;</button>';
   html += '<h2>' + escapeHtml(p.name || 'Untitled') + '</h2>';
@@ -1525,9 +1504,9 @@ function showProjectInfo(id) {
   // Actions
   html += '<div class="pi-sec"><div class="pi-sec-title">Actions</div>';
   html += '<div class="pi-actions">';
-  if (url) html += '<button class="pi-btn pi-btn-health" onclick="piHealthCheck(\\'' + escapeHtml(url) + '\\',document.getElementById(\\'piOut\\'))">&#x2665; Health Check</button>';
+  if (url) html += '<button class="pi-btn pi-btn-health" onclick="piHealthCheck(\'' + escapeHtml(url) + '\',document.getElementById(\'piOut\'))">&#x2665; Health Check</button>';
   if (ghUrl) html += '<a href="' + escapeHtml(ghUrl) + '" target="_blank"><button class="pi-btn pi-btn-src">&#x2387; View Source</button></a>';
-  if (workerName) html += '<button class="pi-btn pi-btn-restore" onclick="piRestore(\\'' + workerName + '\\',document.getElementById(\\'piOut\\'))">&#x21BA; Restore from GitHub</button>';
+  if (workerName) html += '<button class="pi-btn pi-btn-restore" onclick="piRestore(\'' + workerName + '\',document.getElementById(\'piOut\'))">&#x21BA; Restore from GitHub</button>';
   html += '<button class="pi-btn pi-btn-edit" onclick="closeProjInfo();editProjectFlow(' + id + ')">&#x270E; Edit Project</button>';
   html += '</div>';
   html += '<div class="pi-out" id="piOut"></div></div>';
@@ -1574,7 +1553,7 @@ async function piRestore(workerName, out) {
     var commits = await ghR.json();
     if (!Array.isArray(commits) || !commits[0] || !commits[0].sha) throw new Error('No commits found for workers/' + workerName + '.js');
     var sha = commits[0].sha;
-    var msg = (commits[0].commit && commits[0].commit.message) ? commits[0].commit.message.split('\\n')[0] : sha.substring(0,8);
+    var msg = (commits[0].commit && commits[0].commit.message) ? commits[0].commit.message.split('\n')[0] : sha.substring(0,8);
     out.textContent = '⏳ Restoring from ' + sha.substring(0,8) + ': ' + msg;
     var mainMod = workerName === 'asgard' ? 'asgard.js' : 'worker.js';
     var r = await fetch('https://asgard-tools.pgallivan.workers.dev/admin/rollback', {
@@ -2866,25 +2845,21 @@ export default {
       }
     }
     if (path === '/login') {
-      // POST: set cookie and redirect
       if (request.method === 'POST') {
-        const form = await request.formData().catch(() => null);
-        const pin = (form && form.get('pin')) || '';
+        let pin = '';
+        try { const fd = await request.formData(); pin = fd.get('pin') || ''; } catch(e) {}
         if (pin) {
-          return new Response(null, {
-            status: 302,
-            headers: {
-              'Location': '/',
-              'Set-Cookie': `asgard_pin=${encodeURIComponent(pin)}; Path=/; Max-Age=31536000; SameSite=Lax`,
-              'Cache-Control': 'no-store'
-            }
-          });
+          return new Response(null, { status: 302, headers: {
+            'Location': '/',
+            'Set-Cookie': 'asgard_pin=' + encodeURIComponent(pin) + '; Path=/; Max-Age=31536000; SameSite=Lax',
+            'Cache-Control': 'no-store'
+          }});
         }
       }
-      // GET: show form
-      const msg = url.searchParams.get('err') ? '<p style="color:#f87171;font-size:.8rem;margin-bottom:.5rem">Invalid PIN, try again</p>' : '';
-      const loginPage = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Asgard Login</title><style>*{box-sizing:border-box;margin:0;padding:0}body{background:#12121f;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif}.box{background:#1e1e35;padding:2rem;border-radius:16px;width:300px;text-align:center}h1{color:#fff;font-size:1.2rem;margin:.5rem 0}p{color:#888;font-size:.85rem;margin:.5rem 0 1.2rem}input{width:100%;padding:.75rem;border-radius:8px;border:1px solid #444;background:#12121f;color:#fff;font-size:1rem;margin-bottom:.75rem}button{width:100%;padding:.75rem;background:#d97757;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer}</style></head><body><div class="box"><div style="font-size:2rem">&#128409;</div><h1>Asgard</h1>${msg}<p>Enter your PIN</p><form method="POST" action="/login"><input name="pin" type="text" placeholder="PIN" autocomplete="off" autofocus><button type="submit">Login</button></form></div></body></html>`;
-      return new Response(loginPage, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' } });
+      const lp = '<style>*{box-sizing:border-box;margin:0;padding:0}body{background:#12121f;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif}.b{background:#1e1e35;padding:2rem;border-radius:16px;width:300px;text-align:center}h1{color:#fff;font-size:1.25rem;margin:.5rem 0}p{color:#888;font-size:.85rem;margin:.5rem 0 1.2rem}input{width:100%;padding:.75rem;border-radius:8px;border:1px solid #444;background:#0d0d1a;color:#fff;font-size:1rem;margin-bottom:.75rem}button{width:100%;padding:.75rem;background:#d97757;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer}</style><div class="b"><div style="font-size:2rem">&#x1F409;</div><h1>Asgard</h1><p>Enter your PIN</p><form method=POST action=/login><input name=pin type=text placeholder=PIN autocomplete=off autofocus><button>Login</button></form></div>';
+      return new Response('<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Asgard Login</title>' + lp + '</html>', {
+        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }
+      });
     }
     if (path === '/privacy' || path === '/privacy/') {
       try {
