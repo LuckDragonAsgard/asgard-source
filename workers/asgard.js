@@ -1419,7 +1419,7 @@ function showProjectInfo(id) {
 
   // CF Worker detection
   if (url.indexOf('workers.dev') !== -1) {
-    var wm = url.match(/https?:\/\/([^.]+)\.pgallivan\.workers\.dev/);
+    var wm = (url.indexOf('.pgallivan.workers.dev') > -1) ? [null, (url.split('//')[1]||'').split('.')[0]] : null;
     if (wm) workerName = wm[1];
     badges += '<span class="pi-badge b-cf">&#x2601; CF Worker</span>';
     stackNotes.push('<strong>Cloudflare Workers</strong> — serverless JS that runs on 300+ edge locations worldwide. No server to manage, instant deploy, free tier up to 100K req/day.');
