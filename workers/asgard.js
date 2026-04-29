@@ -1465,7 +1465,7 @@ function showProjectInfo(id) {
   var hours = p.hours_needed || 0;
   var prio = p.income_priority || 0;
 
-  var html = '<div class="pi-overlay" id="piOverlay" onclick="if(event.target.id===\'piOverlay\')closeProjInfo()">';
+  var html = '<div class="pi-overlay" id="piOverlay" onclick="if(event.target===this)closeProjInfo()">';
   html += '<div class="pi-modal">';
   html += '<button class="pi-close" onclick="closeProjInfo()">&#x2715;</button>';
   html += '<h2>' + escapeHtml(p.name || 'Untitled') + '</h2>';
