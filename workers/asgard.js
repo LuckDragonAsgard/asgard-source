@@ -1,7 +1,7 @@
 // asgard worker v7.9.2 — Drive references purged, bridge installers point to GitHub
 // Built on top of v6.5.0 (Claude-style chat layout). PROJECTS list and chat behavior unchanged.
 
-const VERSION = '8.7.0';
+const VERSION = '8.8.0';
 // Auto-login from URL: asgard.pgallivan.workers.dev?pin=XXXXX
 (function(){
   try {
@@ -712,6 +712,44 @@ const HTML = `<!doctype html>
   .tile-progress-label { color:var(--muted); font-size:11px; margin-left:auto; }
   .tile-progress { height:3px; background:rgba(255,255,255,0.06); border-radius:2px; margin-top:4px; overflow:hidden; }
   .tile-progress-fill { height:100%; background:linear-gradient(90deg, #d97757, #4ade80); transition:width .3s; }
+  .tile-actions { margin-top:8px; }
+  .tile-info-btn { background:rgba(46,134,171,0.12); border:1px solid rgba(46,134,171,0.3); color:#5ba4cf; border-radius:6px; padding:4px 11px; font-size:11px; cursor:pointer; transition:all 0.2s; }
+  .tile-info-btn:hover { background:rgba(46,134,171,0.28); }
+  .pi-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:9000; display:flex; align-items:center; justify-content:center; padding:20px; }
+  .pi-modal { background:#16213e; border:1px solid #2E86AB; border-radius:12px; width:100%; max-width:640px; max-height:90vh; overflow-y:auto; padding:24px 26px; position:relative; color:#ddd; }
+  .pi-modal h2 { margin:0 0 6px; font-size:19px; color:#e8e8e8; }
+  .pi-close { position:absolute; top:14px; right:16px; background:none; border:none; color:#777; font-size:22px; cursor:pointer; }
+  .pi-close:hover { color:#ddd; }
+  .pi-sec { margin-top:18px; }
+  .pi-sec-title { font-size:10px; text-transform:uppercase; letter-spacing:1.2px; color:#666; margin-bottom:8px; }
+  .pi-badges { display:flex; flex-wrap:wrap; gap:6px; }
+  .pi-badge { padding:3px 10px; border-radius:20px; font-size:11px; font-weight:600; }
+  .b-cf { background:rgba(247,139,35,0.15); color:#f79823; border:1px solid rgba(247,139,35,0.3); }
+  .b-pages { background:rgba(78,205,196,0.15); color:#4ecdc4; border:1px solid rgba(78,205,196,0.3); }
+  .b-gh { background:rgba(110,118,129,0.2); color:#adbac7; border:1px solid rgba(110,118,129,0.3); }
+  .b-vercel { background:rgba(255,255,255,0.08); color:#ddd; border:1px solid rgba(255,255,255,0.15); }
+  .b-ghpages { background:rgba(88,166,255,0.15); color:#58a6ff; border:1px solid rgba(88,166,255,0.3); }
+  .b-firebase { background:rgba(255,202,40,0.15); color:#ffca28; border:1px solid rgba(255,202,40,0.3); }
+  .b-stripe { background:rgba(99,91,255,0.15); color:#a78bfa; border:1px solid rgba(99,91,255,0.3); }
+  .b-supabase { background:rgba(62,207,142,0.15); color:#3ecf8e; border:1px solid rgba(62,207,142,0.3); }
+  .b-do { background:rgba(0,105,255,0.15); color:#4da6ff; border:1px solid rgba(0,105,255,0.3); }
+  .pi-metrics { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .pi-metric { background:rgba(255,255,255,0.04); border-radius:8px; padding:10px; text-align:center; }
+  .pi-metric-val { font-size:17px; font-weight:700; color:#e0e0e0; }
+  .pi-metric-lbl { font-size:10px; color:#777; margin-top:2px; }
+  .pi-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  .pi-btn { padding:8px 15px; border-radius:8px; border:none; cursor:pointer; font-size:12px; font-weight:600; transition:all 0.2s; }
+  .pi-btn-health { background:rgba(34,197,94,0.12); color:#22c55e; border:1px solid rgba(34,197,94,0.25); }
+  .pi-btn-health:hover { background:rgba(34,197,94,0.25); }
+  .pi-btn-restore { background:rgba(245,158,11,0.12); color:#f59e0b; border:1px solid rgba(245,158,11,0.25); }
+  .pi-btn-restore:hover { background:rgba(245,158,11,0.25); }
+  .pi-btn-src { background:rgba(110,118,129,0.12); color:#adbac7; border:1px solid rgba(110,118,129,0.25); }
+  .pi-btn-src:hover { background:rgba(110,118,129,0.25); }
+  .pi-btn-edit { background:rgba(46,134,171,0.12); color:#5ba4cf; border:1px solid rgba(46,134,171,0.25); }
+  .pi-btn-edit:hover { background:rgba(46,134,171,0.25); }
+  .pi-out { margin-top:10px; font-size:13px; min-height:18px; color:#aaa; }
+  .pi-why { background:rgba(255,255,255,0.04); border-left:3px solid #2E86AB; padding:10px 14px; border-radius:0 6px 6px 0; font-size:13px; color:#bbb; line-height:1.55; }
+  .pi-rec { background:rgba(46,134,171,0.08); border-left:3px solid #4ecdc4; padding:10px 14px; border-radius:0 6px 6px 0; font-size:13px; color:#bbb; line-height:1.55; }
   .tile-prio { font-size:11px; color:#facc15; margin-right:auto; margin-left:8px; }
   .tile-status { font-size:10px; padding:2px 8px; border-radius:8px; text-transform:lowercase; }
 #cf-data,[id^='cf-']{display:none!important}
@@ -1368,6 +1406,174 @@ function render() {
   probeProjects();
 }
 
+
+function showProjectInfo(id) {
+  var p = (window.PROJECTS_EFF || window.PROJECTS || []).find(function(x){ return x.id == id; });
+  if (!p) return;
+  var url = p.url || '';
+  var ghUrl = p.github_url || '';
+  var workerName = null;
+  var badges = '';
+  var stackNotes = [];
+
+  // CF Worker detection
+  if (url.indexOf('workers.dev') !== -1) {
+    var wm = url.match(/https?:\/\/([^.]+)\.pgallivan\.workers\.dev/);
+    if (wm) workerName = wm[1];
+    badges += '<span class="pi-badge b-cf">&#x2601; CF Worker</span>';
+    stackNotes.push('<strong>Cloudflare Workers</strong> — serverless JS that runs on 300+ edge locations worldwide. No server to manage, instant deploy, free tier up to 100K req/day.');
+  }
+  if (url.indexOf('.pages.dev') !== -1 || (ghUrl && url.indexOf('pages') !== -1)) {
+    badges += '<span class="pi-badge b-pages">&#x26A1; CF Pages</span>';
+    stackNotes.push('<strong>Cloudflare Pages</strong> — static/JAMstack hosting. Auto-deploys from GitHub on every push. Free, global CDN, SSL included.');
+  }
+  if (url.indexOf('github.io') !== -1) {
+    badges += '<span class="pi-badge b-ghpages">&#x2B21; GitHub Pages</span>';
+    stackNotes.push('<strong>GitHub Pages</strong> — free static hosting directly from a GitHub repo. Best for simple sites with no backend.');
+  }
+  if (url.indexOf('vercel.app') !== -1 || url.indexOf('vercel.com') !== -1) {
+    badges += '<span class="pi-badge b-vercel">&#x25B2; Vercel</span>';
+    stackNotes.push('<strong>Vercel</strong> — hosting for Next.js and React apps. Auto-deploys from GitHub, good for apps with server-side rendering.');
+  }
+  var ctx = (p.context || p.description || p.recommendations || '').toLowerCase();
+  if (ctx.indexOf('firebase') !== -1) {
+    badges += '<span class="pi-badge b-firebase">&#x1F525; Firebase</span>';
+    stackNotes.push('<strong>Firebase (Google)</strong> — needed when the project requires real-time data sync, user auth, or push notifications on mobile/web. Firebase handles these better than a simple REST API because it keeps clients in sync instantly without polling. Required for apps where multiple users see live updates (e.g. scoreboards, live events).');
+  }
+  if (ctx.indexOf('stripe') !== -1) {
+    badges += '<span class="pi-badge b-stripe">&#x1F4B3; Stripe</span>';
+    stackNotes.push('<strong>Stripe</strong> — required for any project that charges money. Handles payment cards, subscriptions, refunds, and invoicing. You cannot legally process card payments without a PCI-compliant gateway like Stripe — doing it yourself would require extensive security certification.');
+  }
+  if (ctx.indexOf('supabase') !== -1) {
+    badges += '<span class="pi-badge b-supabase">&#x26AB; Supabase</span>';
+    stackNotes.push('<strong>Supabase</strong> — a hosted Postgres database with a REST API, auth, and real-time subscriptions. Used when a project needs a full relational database (more powerful than D1 for complex queries), or user login with email/OAuth.');
+  }
+  if (ctx.indexOf('digital ocean') !== -1 || ctx.indexOf('digitalocean') !== -1) {
+    badges += '<span class="pi-badge b-do">&#x1F30A; DigitalOcean</span>';
+    stackNotes.push('<strong>DigitalOcean</strong> — a VPS/cloud server. Needed for long-running processes, WebSockets that persist, or anything that requires a persistent server (Cloudflare Workers time out after 30s and can\'t hold open connections for more than a few seconds).');
+  }
+  if (ghUrl) {
+    badges += '<span class="pi-badge b-gh">&#x2387; GitHub</span>';
+  }
+  if (!badges) badges = '<span class="pi-badge" style="color:#666;border:1px solid #333">No tech data</span>';
+
+  var stackHtml = stackNotes.length ? stackNotes.map(function(n){ return '<p style="margin:0 0 8px">' + n + '</p>'; }).join('') : '<p style="color:#666;margin:0">No stack notes available. Add context to this project to see tech explanations.</p>';
+
+  var rev1 = p.revenue_y1 || 0;
+  var spent = p.cash_spent || 0;
+  var hours = p.hours_needed || 0;
+  var prio = p.income_priority || 0;
+
+  var html = '<div class="pi-overlay" id="piOverlay" onclick="if(event.target.id===\'piOverlay\')closeProjInfo()">';
+  html += '<div class="pi-modal">';
+  html += '<button class="pi-close" onclick="closeProjInfo()">&#x2715;</button>';
+  html += '<h2>' + escapeHtml(p.name || 'Untitled') + '</h2>';
+  if (p.status) html += '<span class="tile-status status-' + (p.status).toLowerCase().replace(/\s+/g,'-') + '" style="font-size:11px">' + escapeHtml(p.status) + '</span>';
+
+  // Tech stack
+  html += '<div class="pi-sec"><div class="pi-sec-title">Tech Stack</div>';
+  html += '<div class="pi-badges">' + badges + '</div>';
+  if (url) html += '<br><a href="' + escapeHtml(url) + '" target="_blank" style="font-size:12px;color:#5ba4cf">' + escapeHtml(url) + '</a>';
+  html += '</div>';
+
+  // Why this stack
+  html += '<div class="pi-sec"><div class="pi-sec-title">Why This Stack?</div>';
+  html += '<div class="pi-why">' + stackHtml + '</div></div>';
+
+  // Metrics
+  html += '<div class="pi-sec"><div class="pi-sec-title">Financials &amp; Effort</div>';
+  html += '<div class="pi-metrics">';
+  html += '<div class="pi-metric"><div class="pi-metric-val">$' + Math.round(rev1).toLocaleString() + '</div><div class="pi-metric-lbl">Y1 Revenue</div></div>';
+  html += '<div class="pi-metric"><div class="pi-metric-val">$' + Math.round(spent).toLocaleString() + '</div><div class="pi-metric-lbl">Cash Spent</div></div>';
+  html += '<div class="pi-metric"><div class="pi-metric-val">' + Math.round(hours) + 'h</div><div class="pi-metric-lbl">Hours Needed</div></div>';
+  html += '</div></div>';
+
+  // Recommendations
+  if (p.recommendations) {
+    html += '<div class="pi-sec"><div class="pi-sec-title">Next Steps / Recommendations</div>';
+    html += '<div class="pi-rec">' + escapeHtml(p.recommendations) + '</div></div>';
+  }
+
+  // Context
+  if (p.context) {
+    html += '<div class="pi-sec"><div class="pi-sec-title">About This Project</div>';
+    html += '<div style="font-size:13px;color:#bbb;line-height:1.5">' + escapeHtml(p.context) + '</div></div>';
+  }
+
+  // Actions
+  html += '<div class="pi-sec"><div class="pi-sec-title">Actions</div>';
+  html += '<div class="pi-actions">';
+  if (url) html += '<button class="pi-btn pi-btn-health" onclick="piHealthCheck(\'' + escapeHtml(url) + '\',document.getElementById(\'piOut\'))">&#x2665; Health Check</button>';
+  if (ghUrl) html += '<a href="' + escapeHtml(ghUrl) + '" target="_blank"><button class="pi-btn pi-btn-src">&#x2387; View Source</button></a>';
+  if (workerName) html += '<button class="pi-btn pi-btn-restore" onclick="piRestore(\'' + workerName + '\',document.getElementById(\'piOut\'))">&#x21BA; Restore from GitHub</button>';
+  html += '<button class="pi-btn pi-btn-edit" onclick="closeProjInfo();editProjectFlow(' + id + ')">&#x270E; Edit Project</button>';
+  html += '</div>';
+  html += '<div class="pi-out" id="piOut"></div></div>';
+
+  html += '</div></div>';
+
+  var el = document.createElement('div');
+  el.id = 'piContainer';
+  el.innerHTML = html;
+  document.body.appendChild(el);
+}
+
+function closeProjInfo() {
+  var el = document.getElementById('piContainer');
+  if (el) el.remove();
+}
+
+async function piHealthCheck(url, out) {
+  if (!out) return;
+  out.textContent = '⏳ Pinging ' + url + ' ...';
+  out.style.color = '#aaa';
+  try {
+    var ctrl = new AbortController();
+    var tid = setTimeout(function(){ ctrl.abort(); }, 7000);
+    var r = await fetch(url + '/health', { signal: ctrl.signal });
+    clearTimeout(tid);
+    var d = {}; try { d = await r.json(); } catch(e) {}
+    var info = d.version || d.worker || d.ok || r.status;
+    out.textContent = (r.ok ? '✅' : '❌') + ' ' + r.status + ' — ' + JSON.stringify(info);
+    out.style.color = r.ok ? '#22c55e' : '#ef4444';
+  } catch(e) {
+    out.textContent = '❌ Unreachable — ' + e.message;
+    out.style.color = '#ef4444';
+  }
+}
+
+async function piRestore(workerName, out) {
+  if (!out) return;
+  if (!confirm('Restore ' + workerName + ' from latest GitHub main? This redeploys the worker immediately.')) return;
+  out.textContent = '⏳ Fetching latest commit for ' + workerName + '...';
+  out.style.color = '#aaa';
+  try {
+    var ghR = await fetch('https://api.github.com/repos/PaddyGallivan/asgard-source/commits?path=workers/' + workerName + '.js&per_page=1', { headers: { 'Accept': 'application/vnd.github+json' } });
+    var commits = await ghR.json();
+    if (!Array.isArray(commits) || !commits[0] || !commits[0].sha) throw new Error('No commits found for workers/' + workerName + '.js');
+    var sha = commits[0].sha;
+    var msg = (commits[0].commit && commits[0].commit.message) ? commits[0].commit.message.split('\n')[0] : sha.substring(0,8);
+    out.textContent = '⏳ Restoring from ' + sha.substring(0,8) + ': ' + msg;
+    var mainMod = workerName === 'asgard' ? 'asgard.js' : 'worker.js';
+    var r = await fetch('https://asgard-tools.pgallivan.workers.dev/admin/rollback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Pin': pin, 'Origin': 'https://asgard.pgallivan.workers.dev', 'User-Agent': navigator.userAgent },
+      body: JSON.stringify({ worker_name: workerName, sha: sha, main_module: mainMod })
+    });
+    var d = await r.json();
+    if (d.rolled_back) {
+      out.textContent = '✅ Restored ' + workerName + ' from ' + sha.substring(0,8) + ' — ' + msg;
+      out.style.color = '#22c55e';
+    } else {
+      out.textContent = '❌ Restore failed — ' + JSON.stringify(d.errors || d.error || d);
+      out.style.color = '#ef4444';
+    }
+  } catch(e) {
+    out.textContent = '❌ Error: ' + e.message;
+    out.style.color = '#ef4444';
+  }
+}
+
 function renderProjectTiles() {
   if (PRODUCTS_LOADING) {
     var _ld = document.createElement('div');
@@ -1505,7 +1711,8 @@ function renderProjectTiles() {
       revLine +
       '<div class="tile-meta">' + statusBadge + '<span class="tile-progress-label">' + prog + '%</span></div>' +
       progressBar +
-      '<div class="health"><span class="dot checking" data-pid-tile="' + p.id + '"></span><span data-pid-tile-label="' + p.id + '">checking…</span></div>';
+      '<div class="health"><span class="dot checking" data-pid-tile="' + p.id + '"></span><span data-pid-tile-label="' + p.id + '">checking…</span></div>' +
+      '<div class="tile-actions"><button class="tile-info-btn" onclick="event.stopPropagation();showProjectInfo(' + p.id + ')">&#x2139; Info &amp; Restore</button></div>';
     tile.addEventListener('click', () => openProjectDetail(p.id));
     grid.appendChild(tile);
   });
