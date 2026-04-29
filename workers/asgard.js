@@ -1,8 +1,38 @@
 // asgard worker v7.9.2 — Drive references purged, bridge installers point to GitHub
 // Built on top of v6.5.0 (Claude-style chat layout). PROJECTS list and chat behavior unchanged.
 
-const VERSION = '8.5.0';
+const VERSION = '8.6.0';
 const TOOLS_URL = 'https://asgard-tools.pgallivan.workers.dev';
+
+function notifEnabled() { return localStorage.getItem('asgard.notif.v1') === '1' && Notification.permission === 'granted'; }
+function notify(title, body, opts) {
+  if (!notifEnabled()) return;
+  try { new Notification(title, { body: body || '', icon: '/icon.svg', ...(opts||{}) }); } catch(e) {}
+}
+function initNotifToggle() {
+  var cb = document.getElementById('notifToggle');
+  var st = document.getElementById('notifStatus');
+  if (!cb) return;
+  cb.checked = localStorage.getItem('asgard.notif.v1') === '1' && Notification.permission === 'granted';
+  cb.addEventListener('change', async function() {
+    if (cb.checked) {
+      var perm = await Notification.requestPermission();
+      if (perm === 'granted') {
+        localStorage.setItem('asgard.notif.v1', '1');
+        st.textContent = 'Notifications on ✓';
+        notify('Asgard', 'Notifications are enabled!');
+      } else {
+        cb.checked = false;
+        localStorage.setItem('asgard.notif.v1', '0');
+        st.textContent = 'Permission denied by browser';
+      }
+    } else {
+      localStorage.setItem('asgard.notif.v1', '0');
+      st.textContent = '';
+    }
+  });
+  if (Notification.permission === 'granted' && localStorage.getItem('asgard.notif.v1') === '1') st.textContent = 'Notifications on ✓';
+}
 
 // Live inventory pulled from CF API + GitHub. 39 projects.
 const PROJECTS = [
@@ -755,7 +785,13 @@ const HTML = `<!doctype html>
       <p style="margin:0;font-size:11px;color:var(--muted)">Polls every ~2s. Setup guide: <a href="https://github.com/PaddyGallivan/asgard-source/blob/main/bridges/README-desktop.md" target="_blank" style="color:var(--accent)">README on GitHub</a>.</p>
     </div>
 
-    <div class="setting setting-row"><button class="btn" id="btnTestBridges">Test bridges now</button><span id="bridgesTestStatus" class="muted"></span></div>
+    <div class="setting setting-row" style="align-items:center;gap:12px">
+    <label style="font-size:13px;display:flex;align-items:center;gap:8px;cursor:pointer">
+      <input type="checkbox" id="notifToggle"> Enable browser notifications
+    </label>
+    <span id="notifStatus" style="font-size:11px;color:var(--muted)"></span>
+  </div>
+  <div class="setting setting-row"><button class="btn" id="btnTestBridges">Test bridges now</button><span id="bridgesTestStatus" class="muted"></span></div>
   </div>
 </div>
 
@@ -765,7 +801,7 @@ const HTML = `<!doctype html>
     <div class="setting"><label>Worker name</label><input type="text" id="deployName" placeholder="asgard"></div>
     <div class="setting"><label>main_module</label><input type="text" id="deployMain" placeholder="worker.js or asgard.js" value="worker.js"></div>
     <div class="setting"><label>Source code</label><textarea id="deployCode" rows="14" placeholder="export default { async fetch(req, env) { return new Response('hi'); } };"></textarea></div>
-    <div class="setting setting-row"><button class="btn-primary" id="btnDeploy">Deploy</button><span id="deployStatus" class="muted"></span></div>
+    <div class="setting setting-row"><button class="btn" id="btnLoadSrc" style="margin-right:8px">&#x1F4E5; Load source</button><button class="btn-primary" id="btnDeploy">Deploy</button><span id="deployStatus" class="muted"></span></div>
     <hr style="border:0;border-top:1px solid var(--border);margin:18px 0">
     <div class="setting setting-row"><button class="btn" id="btnSmoke">🩺 Run smoke test</button><span id="smokeStatus" class="muted"></span></div>
     <div id="smokeResults" style="font-size:11px;font-family:'Menlo',Consolas,monospace;color:var(--text-soft);margin:6px 0 14px"></div>
@@ -1793,6 +1829,10 @@ function probeProjects() {
     [sidebarDot, tileDot, detailDot].forEach(d => { if (d) { d.classList.remove('checking', 'up', 'down'); d.classList.add(status); } });
     if (tileLabel) tileLabel.textContent = status === 'up' ? 'live' : 'unreachable';
     if (detailLabel) detailLabel.textContent = status === 'up' ? 'live' : 'unreachable';
+    if (status === 'down' && p._lastProbeStatus === 'up') {
+      notify('\u26A0\uFE0F ' + p.name + ' is unreachable', p.url || '', { tag: 'health-' + p.id });
+    }
+    p._lastProbeStatus = status;
   });
 }
 
@@ -1853,6 +1893,7 @@ function populateSettings() {
   els.btnSyncNow.onclick = function(){ cloudSyncPush(true); };
   els.btnSyncRestore.onclick = function(){ if (confirm('Replace local conversations with cloud copy? This cannot be undone for the local copy.')) cloudSyncPull(true); };
   els.setVersion.textContent = '__VERSION__';
+  initNotifToggle();
   try {
     var bytes = 0;
     for (var k in localStorage) if (localStorage.hasOwnProperty(k)) bytes += (localStorage[k] || '').length;
@@ -2400,6 +2441,20 @@ document.addEventListener('keydown', function(e) {
   }
 });
 document.querySelectorAll('[data-close]').forEach(function(b){ b.addEventListener('click', closeAllModals); });
+document.getElementById('btnLoadSrc').addEventListener('click', async function() {
+  var name = (document.getElementById('deployName').value || 'asgard').trim();
+  var btn = this; var st = document.getElementById('deployStatus');
+  btn.textContent = 'Loading…'; btn.disabled = true; st.textContent = '';
+  try {
+    var url = 'https://raw.githubusercontent.com/PaddyGallivan/asgard-source/main/workers/' + name + '.js';
+    var r = await fetch(url);
+    if (!r.ok) throw new Error('GitHub ' + r.status);
+    var code = await r.text();
+    document.getElementById('deployCode').value = code;
+    st.textContent = 'Loaded ' + code.length.toLocaleString() + ' chars (' + name + '.js)';
+  } catch(e) { st.textContent = 'Load failed: ' + e.message; }
+  btn.textContent = '\u1F4E5 Load source'; btn.disabled = false;
+});
 els.btnDeploy.addEventListener('click', doDeploy);
 
 // Image paste/drop on the composer
@@ -2439,6 +2494,23 @@ async function pollVersion() {
   } catch (e) {}
 }
 setInterval(pollVersion, 60000);
+async function pollUnread() {
+  try {
+    var pin = loadPin(); if (!pin) return;
+    var r = await fetch('https://asgard-brain.pgallivan.workers.dev/d1/read', {
+      method:'POST', headers:{'Content-Type':'application/json','X-Pin':pin},
+      body: JSON.stringify({ sql: 'SELECT COUNT(*) as cnt FROM msg_inbox WHERE read_at IS NULL' })
+    });
+    var d = await r.json();
+    var cnt = (d.results && d.results[0] && d.results[0].cnt) || 0;
+    var badge = document.getElementById('unreadBadge');
+    if (badge) { badge.textContent = cnt > 0 ? cnt : ''; badge.style.display = cnt > 0 ? 'inline-flex' : 'none'; }
+    if (cnt > 0 && !window._lastUnreadCnt) notify('\u1F4AC New message in Asgard', cnt + ' unread message' + (cnt>1?'s':''), { tag:'asgard-msg' });
+    window._lastUnreadCnt = cnt;
+  } catch(e) {}
+}
+setInterval(pollUnread, 30000);
+pollUnread();
 els.modelBtn.addEventListener('click', function(e){ e.stopPropagation(); els.modelMenu.classList.toggle('open'); });
 document.addEventListener('click', function(e){ if (!e.target.closest || !e.target.closest('#modelPicker')) els.modelMenu.classList.remove('open'); });
 els.viewTabs.addEventListener('click', (e) => {
