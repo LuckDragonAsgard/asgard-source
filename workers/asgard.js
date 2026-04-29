@@ -7,10 +7,9 @@ const VERSION = '8.8.0';
   try {
     var _sp = new URLSearchParams(location.search);
     var _pin = _sp.get('pin');
-    if (_pin && _pin.length >= 16) {
+    if (_pin && _pin.length >= 8) {
       localStorage.setItem('asgard.pin.v1', _pin);
-      // Clean the URL so PIN isn't visible in browser history
-      history.replaceState({}, '', location.pathname);
+      location.href = location.pathname;
     }
   } catch(e) {}
 })();
