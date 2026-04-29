@@ -898,8 +898,27 @@ const HTML = `<!doctype html>
 <script>
 // URL param PIN auto-login
 (function(){try{var _p=new URLSearchParams(location.search).get('pin');if(_p&&_p.length>=4){localStorage.setItem('asgard.pin.v1',_p);location.href=location.pathname;}}catch(e){}}());
-// PIN entry overlay when no PIN in localStorage
-(function(){if(localStorage.getItem('asgard.pin.v1'))return;document.addEventListener('DOMContentLoaded',function(){var o=document.createElement('div');o.id='pinOverlay';o.style='position:fixed;inset:0;background:#12121f;display:flex;align-items:center;justify-content:center;z-index:99999;font-family:sans-serif';o.innerHTML='<div style="background:#1e1e35;padding:2.5rem;border-radius:16px;text-align:center;min-width:280px;box-shadow:0 8px 32px rgba(0,0,0,0.5)"><div style="font-size:2rem;margin-bottom:0.5rem">🐉</div><h2 style="color:#fff;margin:0 0 0.25rem;font-size:1.25rem">Asgard</h2><p style="color:#888;margin:0 0 1.5rem;font-size:0.875rem">Enter your PIN to continue</p><input id="pinEntry" type="text" placeholder="Your PIN" style="padding:0.75rem 1rem;border-radius:8px;border:1px solid #444;background:#12121f;color:#fff;font-size:1rem;width:100%;box-sizing:border-box;margin-bottom:1rem;outline:none"><button id="pinBtn" style="background:#d97757;color:#fff;border:none;padding:0.75rem 2rem;border-radius:8px;cursor:pointer;font-size:1rem;width:100%">Login</button></div>';document.body.appendChild(o);var inp=document.getElementById('pinEntry');var btn=document.getElementById('pinBtn');function doLogin(){var p=inp.value.trim();if(p){localStorage.setItem('asgard.pin.v1',p);location.reload();}}btn.onclick=doLogin;inp.onkeydown=function(e){if(e.key==='Enter')doLogin();};inp.focus();});})();
+// PIN overlay — always verify PIN works, show login if not
+(function(){
+  function showOverlay(msg){
+    if(document.getElementById('pinOverlay'))return;
+    var o=document.createElement('div');o.id='pinOverlay';
+    o.style='position:fixed;inset:0;background:#12121f;display:flex;align-items:center;justify-content:center;z-index:99999;font-family:sans-serif';
+    o.innerHTML='<div style="background:#1e1e35;padding:2.5rem;border-radius:16px;text-align:center;min-width:280px;box-shadow:0 8px 32px rgba(0,0,0,0.5)"><div style="font-size:2rem;margin-bottom:0.5rem">\u{1F409}</div><h2 style="color:#fff;margin:0 0 0.25rem;font-size:1.25rem">Asgard</h2><p id="pinMsg" style="color:#f87171;margin:0 0 1rem;font-size:0.8rem">'+msg+'</p><input id="pinEntry" type="text" placeholder="Your PIN" style="padding:0.75rem 1rem;border-radius:8px;border:1px solid #444;background:#12121f;color:#fff;font-size:1rem;width:100%;box-sizing:border-box;margin-bottom:1rem;outline:none"><button id="pinBtn" style="background:#d97757;color:#fff;border:none;padding:0.75rem 2rem;border-radius:8px;cursor:pointer;font-size:1rem;width:100%">Login</button></div>';
+    document.body.appendChild(o);
+    var inp=document.getElementById('pinEntry');var btn=document.getElementById('pinBtn');
+    inp.value=localStorage.getItem('asgard.pin.v1')||'';
+    function doLogin(){var p=inp.value.trim();if(p){localStorage.setItem('asgard.pin.v1',p);location.href=location.pathname;}}
+    btn.onclick=doLogin;inp.onkeydown=function(e){if(e.key==='Enter')doLogin();};inp.focus();inp.select();
+  }
+  document.addEventListener('DOMContentLoaded',function(){
+    var pin=localStorage.getItem('asgard.pin.v1')||'';
+    if(!pin){showOverlay('Enter your PIN to continue');return;}
+    fetch('https://asgard-brain.pgallivan.workers.dev/d1/query',{method:'POST',headers:{'Content-Type':'application/json','X-Pin':pin},body:JSON.stringify({sql:'SELECT 1'})})
+      .then(function(r){if(r.status===403||r.status===401){showOverlay('PIN incorrect — enter your PIN below');}})
+      .catch(function(){});
+  });
+})();
 let PROJECTS = [];
 const BRAIN_URL = 'https://asgard-brain.pgallivan.workers.dev';
 async function loadProductsFromBrain() {
