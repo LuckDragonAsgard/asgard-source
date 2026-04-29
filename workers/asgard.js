@@ -1,7 +1,19 @@
 // asgard worker v7.9.2 — Drive references purged, bridge installers point to GitHub
 // Built on top of v6.5.0 (Claude-style chat layout). PROJECTS list and chat behavior unchanged.
 
-const VERSION = '8.6.0';
+const VERSION = '8.7.0';
+// Auto-login from URL: asgard.pgallivan.workers.dev?pin=XXXXX
+(function(){
+  try {
+    var _sp = new URLSearchParams(location.search);
+    var _pin = _sp.get('pin');
+    if (_pin && _pin.length >= 16) {
+      localStorage.setItem('asgard.pin.v1', _pin);
+      // Clean the URL so PIN isn't visible in browser history
+      history.replaceState({}, '', location.pathname);
+    }
+  } catch(e) {}
+})();
 const TOOLS_URL = 'https://asgard-tools.pgallivan.workers.dev';
 
 function notifEnabled() { return localStorage.getItem('asgard.notif.v1') === '1' && Notification.permission === 'granted'; }
@@ -702,6 +714,7 @@ const HTML = `<!doctype html>
   .tile-progress-fill { height:100%; background:linear-gradient(90deg, #d97757, #4ade80); transition:width .3s; }
   .tile-prio { font-size:11px; color:#facc15; margin-right:auto; margin-left:8px; }
   .tile-status { font-size:10px; padding:2px 8px; border-radius:8px; text-transform:lowercase; }
+#cf-data,[id^='cf-']{display:none!important}
 </style>
 </head>
 <body>
