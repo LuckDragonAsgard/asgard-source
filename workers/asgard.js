@@ -430,6 +430,9 @@ const TOOLS = [
   { id: 'cr-shot',  name: 'Chrome screenshot',     prompt: 'Use chrome_screenshot to capture my current browser tab.' },
   { id: 'cr-extract', name: 'Chrome extract',      prompt: 'Use chrome_extract on my current tab and summarise what you see.' },
   { id: 'cr-nav',   name: 'Chrome navigate',       prompt: 'Use chrome_navigate to go to https://' },
+  { id: 'cr-click', name: 'Chrome click element',  prompt: 'Use chrome_click with selector "" to click an element on my current tab.' },
+  { id: 'cr-type',  name: 'Chrome type text',      prompt: 'Use chrome_type with selector "" and text "" to type into a field on my current tab.' },
+  { id: 'cr-edit',  name: 'Edit this website',     prompt: 'Take a chrome_screenshot, then describe what you see, then use chrome_click and chrome_type to make the edits I need.' },
   // Desktop bridge (real desktop)
   { id: 'ds-shot',  name: 'Desktop screenshot',    prompt: 'Use desktop_screenshot to capture my screen and tell me what is focused.' },
   { id: 'ds-key',   name: 'Desktop keystroke',     prompt: 'Use desktop_key with keys ' },
@@ -922,7 +925,7 @@ const HTML = `<!doctype html>
     <div class="composer" id="composerWrap">
       <div class="composer-inner">
         <form class="composer-box" id="form">
-          <button type="button" id="mic" title="Voice input" aria-label="Voice input" style="background:transparent;border:none;cursor:pointer;padding:6px 8px;font-size:1.2rem;color:var(--muted);flex-shrink:0;border-radius:8px;transition:color .2s" onmouseenter="this.style.color='var(--accent)'" onmouseleave="this.style.color='var(--muted)'">&#x1F3A4;</button>
+          <button type="button" id="speakToggle" title="Auto-speak OFF" aria-label="Toggle auto-speak" style="background:transparent;border:none;cursor:pointer;padding:6px 8px;font-size:1.2rem;color:var(--muted);flex-shrink:0;border-radius:8px;transition:color .2s;opacity:0.4" onmouseenter="this.style.color='var(--accent)'" onmouseleave="this.style.color=loadSpeakAuto()?'var(--accent)':\'var(--muted)'">&#x1F50A;</button><button type="button" id="mic" title="Voice input" aria-label="Voice input" style="background:transparent;border:none;cursor:pointer;padding:6px 8px;font-size:1.2rem;color:var(--muted);flex-shrink:0;border-radius:8px;transition:color .2s" onmouseenter="this.style.color='var(--accent)'" onmouseleave="this.style.color='var(--muted)'">&#x1F3A4;</button>
           <textarea id="input" placeholder="Message Asgard…" rows="1"></textarea>
           <button type="submit" id="send" aria-label="Send message">Send</button>
         </form>
@@ -2024,6 +2027,14 @@ function renderChat() {
   const inner = document.createElement('div');
   inner.className = 'chat-inner';
   conv.messages.forEach(m => {
+    // System alert messages render differently
+    if (m.role === 'system-alert') {
+      const alertRow = document.createElement('div');
+      alertRow.className = 'msg system-alert';
+      alertRow.innerHTML = '<div style="width:100%;text-align:center;font-size:12px;color:var(--muted);padding:4px 0;opacity:0.8">' + (m.content || '') + '</div>';
+      inner.appendChild(alertRow);
+      continue;
+    }
     const row = document.createElement('div');
     row.className = 'msg ' + m.role;
     const avatar = m.role === 'user' ? 'You' : 'A';
@@ -2552,6 +2563,27 @@ function buildSystemPrompt(conv) {
 
 function sendMessage(text) { currentView = 'chat'; saveView('chat'); render(); send(text); }
 // ── Voice input ────────────────────────────────────────────
+// ── Auto-speak helpers ──────────────────────────────────────────────────────
+var SPEAK_AUTO_KEY = 'asgard.speak.auto';
+function loadSpeakAuto() { return localStorage.getItem(SPEAK_AUTO_KEY) === '1'; }
+function saveSpeakAuto(v) { localStorage.setItem(SPEAK_AUTO_KEY, v ? '1' : '0'); updateSpeakToggleBtn(); }
+function updateSpeakToggleBtn() {
+  var btn = document.getElementById('speakToggle');
+  if (!btn) return;
+  var on = loadSpeakAuto();
+  btn.textContent = on ? '\uD83D\uDD0A' : '\uD83D\uDD07';
+  btn.title = on ? 'Auto-speak ON — click to mute' : 'Auto-speak OFF — click to enable';
+  btn.style.opacity = on ? '1' : '0.4';
+  btn.style.color = on ? 'var(--accent)' : 'var(--muted)';
+}
+(function() {
+  var stBtn = document.getElementById('speakToggle');
+  if (stBtn) {
+    updateSpeakToggleBtn();
+    stBtn.addEventListener('click', function() { saveSpeakAuto(!loadSpeakAuto()); });
+  }
+})();
+
 (function() {
   var micBtn = document.getElementById('mic');
   if (!micBtn) return;
@@ -2721,6 +2753,7 @@ async function send(text) {
     conv.updatedAt = Date.now();
     saveConvos(convos);
     render();
+    if (loadSpeakAuto && loadSpeakAuto()) speakMessage(reply);
   } catch (e) {
     typingRow.remove();
     conv.messages.push({ role: 'assistant', content: '⚠ Error: ' + e.message });
@@ -2851,6 +2884,51 @@ function runPinGate(then) {
   btn.addEventListener('click', tryUnlock);
   input.addEventListener('keydown', function(e){ if (e.key === 'Enter') tryUnlock(); });
 }
+
+// ── Proactive health alert polling (runs every 60s) ────────────────────────
+var _healthState = {};
+async function pollHealthAlerts() {
+  var checks = [
+    { name: 'AI',    url: 'https://asgard-ai.luckdragon.io/health' },
+    { name: 'Tools', url: 'https://asgard-tools.luckdragon.io/health' },
+    { name: 'Brain', url: 'https://asgard-brain.luckdragon.io/health' },
+    { name: 'Vault', url: 'https://asgard-vault.luckdragon.io/health' },
+  ];
+  var pin = loadPin();
+  if (!pin) return; // not logged in
+  for (var i = 0; i < checks.length; i++) {
+    var b = checks[i];
+    try {
+      var r = await fetch(b.url, { headers: { 'X-Pin': pin }, signal: AbortSignal.timeout(6000) });
+      var ok = r.ok;
+      if (_healthState[b.name] === false && ok) {
+        injectAlertMessage('✅ ' + b.name + ' is back online.');
+      } else if (_healthState[b.name] !== undefined && _healthState[b.name] !== false && !ok) {
+        injectAlertMessage('⚠️ ' + b.name + ' is down (HTTP ' + r.status + '). I may not be able to use it right now.');
+        notify('Asgard Alert', b.name + ' appears to be down');
+      }
+      _healthState[b.name] = ok;
+    } catch(e) {
+      if (_healthState[b.name] !== undefined && _healthState[b.name] !== false) {
+        injectAlertMessage('⚠️ ' + b.name + ' is unreachable. Check your connection.');
+        notify('Asgard Alert', b.name + ' is unreachable');
+      }
+      _healthState[b.name] = false;
+    }
+  }
+}
+function injectAlertMessage(text) {
+  var conv = getActive();
+  if (!conv) return;
+  conv.messages.push({ role: 'system-alert', content: text, ts: Date.now() });
+  saveConvos(convos);
+  render();
+}
+// Start after 45s (let page settle), then every 60s
+setTimeout(function() {
+  pollHealthAlerts();
+  setInterval(pollHealthAlerts, 60000);
+}, 45000);
 
 runPinGate(function() {
   if (loadCloudSync() && convos.length === 0) {
