@@ -1,7 +1,73 @@
-// falkor-agent v1.1.0-rag — Durable Object per user
+// falkor-agent v1.2.0-a2a — Durable Object per user
 // Phase 2 of the Falkor rebuild (formerly Asgard)
 // Persistent WebSocket hub + chat history + per-user memory
 // One DO instance per user (keyed by userId)
+
+
+// ── A2A Sub-agent Registry ────────────────────────────────────────────────────
+const AGENTS = {
+  sport:     'https://falkor-sport.luckdragon.io',
+  kbt:       'https://falkor-kbt.luckdragon.io',
+  brain:     'https://falkor-brain.luckdragon.io',
+  workflows: 'https://falkor-workflows.luckdragon.io',
+  school:    'https://falkor-school.luckdragon.io',
+  web:       'https://falkor-web.luckdragon.io',
+};
+
+// Keyword → agent routing (fast, no LLM needed)
+function routeIntent(text) {
+  const t = text.toLowerCase();
+  // Sport / AFL / Racing
+  if (/\b(afl|footy|football|ladder|tip|tipping|squiggle|racing|horse|race|round|score|fixture|essendon|collingwood|hawks|bombers|cats|demons|carlton|richmond|western bulldogs|fremantle|geelong|hawthorn|melbourne|port adelaide|gold coast|gws|brisbane|sydney|west coast|st kilda|north melbourne|adelaide)\b/.test(t))
+    return { agent: 'sport', action: 'summary' };
+  // KBT Trivia
+  if (/\b(trivia|kbt|kow|brainer|quiz|question|pub quiz|game|host|players|leaderboard|event tonight|next event)\b/.test(t))
+    return { agent: 'kbt', action: 'query' };
+  // School / PE
+  if (/\b(pe|physical education|lesson plan|sports day|cross.country|carnival|students|wps|williamstown primary|outdoor|weather for school|athletics|sprint|house points)\b/.test(t))
+    return { agent: 'school', action: 'query' };
+  // Weather (non-school)
+  if (/\b(weather|temperature|forecast|rain|uv|wind|celsius|degrees|conditions)\b/.test(t) && !/school|pe|lesson/.test(t))
+    return { agent: 'workflows', action: 'weather' };
+  // Memory / Brain
+  if (/\b(remember|recall|what do you know|brain|memory|stored|learned|told you|history of)\b/.test(t))
+    return { agent: 'brain', action: 'recall' };
+  // Web search
+  if (/\b(search|look up|find|google|what is|who is|latest|news|current|today's|recent)\b/.test(t) && t.length < 200)
+    return { agent: 'web', action: 'search' };
+  return null; // general AI
+}
+
+// Call a sub-agent and get its response
+async function callSubAgent(agentKey, action, text, pin) {
+  const baseUrl = AGENTS[agentKey];
+  if (!baseUrl) return null;
+  try {
+    let url, body;
+    switch (agentKey) {
+      case 'sport':
+        return fetch(`${baseUrl}/summary`, { headers: { 'X-Pin': pin } }).then(r=>r.ok?r.json():null);
+      case 'kbt':
+        return fetch(`${baseUrl}/summary`, { headers: { 'X-Pin': pin } }).then(r=>r.ok?r.json():null);
+      case 'brain':
+        return fetch(`${baseUrl}/recall`, {
+          method: 'POST', headers: {'Content-Type':'application/json','X-Pin':pin},
+          body: JSON.stringify({query:text, top_k:5, answer:true})
+        }).then(r=>r.ok?r.json():null);
+      case 'workflows':
+        return fetch(`${AGENTS.workflows.replace('falkor-workflows','asgard-ai')}/weather?lat=-37.86&lon=144.9`, {
+          headers:{'X-Pin':pin}}).then(r=>r.ok?r.json():null);
+      case 'school':
+        return fetch(`${baseUrl}/summary`, { headers: {'X-Pin':pin} }).then(r=>r.ok?r.json():null);
+      case 'web':
+        return fetch(`${baseUrl}/search`, {
+          method:'POST', headers:{'Content-Type':'application/json','X-Pin':pin},
+          body: JSON.stringify({query:text})
+        }).then(r=>r.ok?r.json():null);
+      default: return null;
+    }
+  } catch { return null; }
+}
 
 export class FalkorAgent {
   constructor(state, env) {
@@ -55,7 +121,7 @@ export class FalkorAgent {
       const history = await this.getHistory();
       const memory = await this.getMemory();
       return Response.json({
-        version: '1.1.0-rag',
+        version: '1.2.0-a2a',
         activeSessions: this.sessions.size,
         historyLength: history.length,
         memoryKeys: Object.keys(memory).length,
@@ -126,6 +192,30 @@ export class FalkorAgent {
     // Broadcast user message to all WS sessions
     this.broadcast({ type: 'user_message', text, model });
 
+    // ── A2A Intent routing: check if a sub-agent can answer directly ──────────
+    const intent = routeIntent(text);
+    if (intent) {
+      const pin = this.env.AGENT_PIN || '';
+      const agentData = await callSubAgent(intent.agent, intent.action, text, pin);
+      if (agentData) {
+        // Inject sub-agent data as context into the prompt instead of routing away
+        // This way the main AI still crafts the response but uses specialist data
+        const agentCtx = '\n\nLive data from falkor-' + intent.agent + ':\n' + JSON.stringify(agentData, null, 2).slice(0, 1500);
+        // Will be picked up by ragContext injection below
+        try {
+          // Also store in brain for memory continuity
+          if (intent.agent === 'sport' || intent.agent === 'kbt') {
+            await fetch('https://falkor-brain.luckdragon.io/remember', {
+              method: 'POST', headers: {'Content-Type':'application/json','X-Pin':pin},
+              body: JSON.stringify({text: 'Live data from ' + intent.agent + ': ' + JSON.stringify(agentData).slice(0,500), category: intent.agent, tags:[intent.agent,'live']})
+            }).catch(()=>{});
+          }
+        } catch {}
+        // Attach to ragContext for prompt injection
+        this._pendingAgentCtx = agentCtx;
+      }
+    }
+
     // Fetch relevant context from falkor-brain (RAG)
     let ragContext = '';
     try {
@@ -142,6 +232,7 @@ export class FalkorAgent {
         }
       }
     } catch (e) { /* brain unavailable — continue without */ }
+    if (this._pendingAgentCtx) { ragContext += this._pendingAgentCtx; this._pendingAgentCtx = null; }
 
     // Call asgard-ai router
     // API format: { message: string, context: [...], model, max_tokens, system }
@@ -158,7 +249,7 @@ export class FalkorAgent {
         body: JSON.stringify({
           message: text,
           context,
-          system: 'You are Falkor, an intelligent personal AI assistant for Paddy.' + systemExtra + ragContext,
+          system: 'You are Falkor, Paddy\'s intelligent personal AI. You have real-time access to AFL/sport data (falkor-sport), KBT trivia (falkor-kbt), PE weather alerts (falkor-workflows), and personal memory (falkor-brain). Use live data in context to give specific, actionable answers.' + systemExtra + ragContext,
           model,
           max_tokens: 2048,
         }),
@@ -255,7 +346,7 @@ export default {
 
     // Health check (no auth needed)
     if (url.pathname === '/health') {
-      return Response.json({ status: 'ok', version: '1.1.0-rag', worker: 'falkor-agent' });
+      return Response.json({ status: 'ok', version: '1.2.0-a2a', worker: 'falkor-agent' });
     }
 
     // Route to user's Durable Object (one per user, keyed by userId)
