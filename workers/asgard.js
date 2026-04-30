@@ -2138,7 +2138,7 @@ async function loadStats() {
   var b = els.statsBody;
   b.innerHTML = '<div class="muted" style="padding:16px;text-align:center">Loading cost data…</div>';
   var pin = loadPin();
-  fetch(AI_BASE + '/admin/spend?days=30', {headers:{'X-Pin':pin,'Content-Type':'application/json'}})
+  fetch('https://asgard-ai.pgallivan.workers.dev/admin/spend?days=30', {headers:{'X-Pin':pin,'Content-Type':'application/json'}})
     .then(function(r){return r.json();}).then(function(d){
       if (!d.ok) { b.innerHTML = '<div class="muted" style="padding:16px">No spend data yet — start chatting!</div>'; return; }
       var rows = d.rows || [];
@@ -2511,6 +2511,7 @@ function buildSystemPrompt(conv) {
   return 'You are Asgard, working specifically on the ' + proj.name + ' project right now. Project context: ' + proj.context + ' Live URL: ' + proj.url + '. Repo: ' + proj.repo + '. You are currently logged in as ' + getPinName() + '. Scope all answers and actions to this project unless ' + getPinName() + ' explicitly says otherwise.';
 }
 
+function sendMessage(text) { currentView = 'chat'; saveView('chat'); render(); send(text); }
 async function send(text) {
   let conv = getActive();
   if (!conv) conv = newConvo(null);
@@ -2944,7 +2945,7 @@ export default {
         'Strict-Transport-Security': 'max-age=63072000; includeSubDomains',
         'Referrer-Policy': 'strict-origin-when-cross-origin',
         'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
-        'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src https://asgard-ai.pgallivan.workers.dev https://asgard-tools.pgallivan.workers.dev https://asgard-brain.pgallivan.workers.dev https://asgard-vault.pgallivan.workers.dev; img-src 'self' data: blob:; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'none';"
+        'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src https://asgard-ai.pgallivan.workers.dev https://asgard-tools.pgallivan.workers.dev https://asgard-brain.pgallivan.workers.dev https://asgard-vault.pgallivan.workers.dev https:; img-src 'self' data: blob:; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'none';"
       } });
     }
 
