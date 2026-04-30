@@ -1,4 +1,4 @@
-// falkor-agent v1.0.1 — Durable Object per user
+// falkor-agent v1.1.0-rag — Durable Object per user
 // Phase 2 of the Falkor rebuild (formerly Asgard)
 // Persistent WebSocket hub + chat history + per-user memory
 // One DO instance per user (keyed by userId)
@@ -55,7 +55,7 @@ export class FalkorAgent {
       const history = await this.getHistory();
       const memory = await this.getMemory();
       return Response.json({
-        version: '1.0.1',
+        version: '1.1.0-rag',
         activeSessions: this.sessions.size,
         historyLength: history.length,
         memoryKeys: Object.keys(memory).length,
@@ -126,11 +126,29 @@ export class FalkorAgent {
     // Broadcast user message to all WS sessions
     this.broadcast({ type: 'user_message', text, model });
 
+    // Fetch relevant context from falkor-brain (RAG)
+    let ragContext = '';
+    try {
+      const ragResp = await fetch(`${brainUrl || 'https://falkor-brain.luckdragon.io'}/recall`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Pin': this.env.AGENT_PIN || '' },
+        body: JSON.stringify({ query: text, top_k: 3, answer: false }),
+      });
+      if (ragResp.ok) {
+        const ragData = await ragResp.json();
+        const matches = (ragData.matches || []).filter(m => m.score > 0.5);
+        if (matches.length > 0) {
+          ragContext = '\n\nRelevant context from memory:\n' + matches.map((m, i) => `${i+1}. [${m.category}] ${m.content}`).join('\n');
+        }
+      }
+    } catch (e) { /* brain unavailable — continue without */ }
+
     // Call asgard-ai router
     // API format: { message: string, context: [...], model, max_tokens, system }
     let reply = '';
     try {
       const aiUrl = this.env.AI_WORKER_URL || 'https://asgard-ai.luckdragon.io';
+      const brainUrl = 'https://falkor-brain.luckdragon.io';
       const resp = await fetch(`${aiUrl}/chat/smart`, {
         method: 'POST',
         headers: {
@@ -140,7 +158,7 @@ export class FalkorAgent {
         body: JSON.stringify({
           message: text,
           context,
-          system: 'You are Falkor, an intelligent personal AI assistant for Paddy.' + systemExtra,
+          system: 'You are Falkor, an intelligent personal AI assistant for Paddy.' + systemExtra + ragContext,
           model,
           max_tokens: 2048,
         }),
@@ -237,7 +255,7 @@ export default {
 
     // Health check (no auth needed)
     if (url.pathname === '/health') {
-      return Response.json({ status: 'ok', version: '1.0.1', worker: 'falkor-agent' });
+      return Response.json({ status: 'ok', version: '1.1.0-rag', worker: 'falkor-agent' });
     }
 
     // Route to user's Durable Object (one per user, keyed by userId)
