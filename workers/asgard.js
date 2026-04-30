@@ -416,8 +416,7 @@ const TOOLS = [
   { id: 'email',    name: 'Send email',            prompt: 'Use send_email to send a message to  with subject  and body ' },
   { id: 'vercel-d', name: 'Vercel deployments',    prompt: 'Use vercel_list_deployments with limit 10 and tell me which are live and which failed.' },
   { id: 'vercel-p', name: 'Vercel projects',       prompt: 'Use vercel_list_projects to show all my Vercel projects with their latest deployment URLs.' },
-  { id: 'stripe-p', name: 'Stripe products',       prompt: 'Use stripe_list_products to list my Stripe products with prices.' },
-  { id: 'stripe-l', name: 'Stripe payment links',  prompt: 'Use stripe_list_payment_links to show my live payment links.' },
+
   { id: 'sb-q',     name: 'Supabase query',        prompt: 'Use supabase_select on table  to fetch the latest rows.' },
   { id: 'web-search', name: 'Web search',          prompt: 'Use web_search to find ' },
   { id: 'discord',  name: 'Post to Discord',       prompt: 'Use discord_send to post the following message to my Discord: ' },
@@ -2166,6 +2165,11 @@ function renderChat() {
     const avatar = m.role === 'user' ? 'You' : 'A';
     var bodyHtml = md(m.content);
     if (m.image) bodyHtml = '<img class="msg-image" src="' + m.image + '" alt="attachment">' + bodyHtml;
+    var modelBadge = '';
+    if (m.role === 'assistant' && m.model) {
+      var shortModel = m.model.replace('claude-','').replace('gpt-','GPT-').replace('-latest','').replace('-20251022','').replace('-20240620','');
+      modelBadge = '<span style="display:inline-block;font-size:10px;color:var(--muted);background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;margin-left:6px;vertical-align:middle;font-family:monospace;">' + escapeHtml(shortModel) + '</span>';
+    }
     var debugInfo = '';
     if (loadDebug() && m.role === 'assistant') {
       var bits = [];
@@ -2187,7 +2191,7 @@ function renderChat() {
       if (loadTelegramChat()) actions += '<button class="msg-action" data-telegram="1">✈️ Telegram</button>';
       actions += '</div>';
     }
-    row.innerHTML = '<div class="avatar">' + avatar + '</div><div class="body">' + bodyHtml + debugInfo + actions + '</div>';
+    row.innerHTML = '<div class="avatar">' + avatar + '</div><div class="body">' + bodyHtml + debugInfo + modelBadge + actions + '</div>';
     if (m.role === 'assistant' && m.content) {
       var sb = row.querySelector('[data-speak]');
       if (sb) sb.addEventListener('click', function(){ speakMessage(m.content, sb); });
@@ -2641,17 +2645,9 @@ async function renderSetupChecklist() {
 async function submitFeatureRequest() {
   var text = prompt('What feature would you like to request?');
   if (!text || !text.trim()) return;
-  try {
-    var r = await fetch('https://falkor-ai.luckdragon.io/feature-request', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Pin': loadPin() },
-      body: JSON.stringify({ body: text.trim(), text: text.trim(), source: 'falkor-dashboard' })
-    });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    alert('✅ Feature request submitted');
-  } catch (e) {
-    alert('Submission failed: ' + e.message);
-  }
+  var subject = encodeURIComponent('Asgard Feature Request');
+  var body = encodeURIComponent(text.trim());
+  window.open('mailto:paddy@luckdragon.io?subject=' + subject + '&body=' + body);
 }
 
 function attachImageFromFile(file) { attachFile(file); }
@@ -3457,7 +3453,7 @@ async function send(text) {
         }
         typingRow.remove();
         var reply = fullText || '(empty response)';
-        conv.messages.push({ role: 'assistant', content: reply, provider: 'anthropic' });
+        conv.messages.push({ role: 'assistant', content: reply, provider: 'anthropic', model: selectedModel });
         conv.updatedAt = Date.now();
         saveConvos(convos);
         render();
@@ -3490,7 +3486,7 @@ async function send(text) {
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
     const reply = data.response || data.reply || data.text || data.content || data.message || '(empty response)';
-    conv.messages.push({ role: 'assistant', content: reply, tools: data.tools_executed || [], iters: data.iterations, usage: data.usage, provider: data.provider });
+    conv.messages.push({ role: 'assistant', content: reply, tools: data.tools_executed || [], iters: data.iterations, usage: data.usage, provider: data.provider, model: selectedModel });
     conv.updatedAt = Date.now();
     saveConvos(convos);
     render();
