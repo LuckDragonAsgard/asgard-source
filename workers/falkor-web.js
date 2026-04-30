@@ -1,14 +1,13 @@
-// falkor-web v1.0.0 — Web search + scraping sub-agent
-// Uses Tavily API for search (key in asgard-ai secrets, proxied here)
-// Falls back to Brave Search free tier
+// falkor-web v1.1.0 — Web search + scraping sub-agent
+// Uses Tavily API for search (key in secrets). Falls back to DuckDuckGo.
+// v1.1.0: DDG results now also ingested into falkor-brain (was Tavily-only)
 // Endpoints:
 //   POST /search  — semantic web search, returns ranked results + snippets
 //   POST /fetch   — fetch and extract clean text from a URL
 //   GET  /health  — version check
 
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 const WORKER_NAME = 'falkor-web';
-const AI_URL = 'https://asgard-ai.luckdragon.io';
 const BRAIN_URL = 'https://falkor-brain.luckdragon.io';
 
 const CORS = {
@@ -24,6 +23,17 @@ function pinOk(request, env) {
   const pin = request.headers.get('X-Pin') || '';
   if (!env.AGENT_PIN) return true;
   return pin === env.AGENT_PIN;
+}
+
+async function ingestIntoBrain(query, answer, results, env) {
+  if (!results.length && !answer) return;
+  const snippet = answer || results[0]?.snippet || '';
+  const summary = `Web search: "${query}" → ${snippet.slice(0, 400)}`;
+  await fetch(`${BRAIN_URL}/remember`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Pin': env.AGENT_PIN || '' },
+    body: JSON.stringify({ text: summary, category: 'web', tags: ['search', 'auto-ingested'] }),
+  }).catch(() => {});
 }
 
 export default {
@@ -61,30 +71,20 @@ export default {
           });
           if (r.ok) {
             const d = await r.json();
-            const results = (d.results || []).map(r => ({
-              title: r.title,
-              url: r.url,
-              snippet: r.content?.slice(0, 300) || '',
-              score: r.score,
+            const results = (d.results || []).map(item => ({
+              title: item.title,
+              url: item.url,
+              snippet: item.content?.slice(0, 300) || '',
+              score: item.score,
             }));
             const answer = d.answer || '';
-
-            // Optionally store search results in brain
-            if (results.length > 0) {
-              const summary = `Web search: "${query}" → ${answer || results[0]?.snippet || ''}`;
-              await fetch(`${BRAIN_URL}/remember`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-Pin': env.AGENT_PIN || '' },
-                body: JSON.stringify({ text: summary, category: 'web', tags: ['search'] }),
-              }).catch(() => {});
-            }
-
+            await ingestIntoBrain(query, answer, results, env);
             return json({ ok: true, query, answer, results, provider: 'tavily', count: results.length });
           }
         } catch (e) { console.error('Tavily error:', e?.message); }
       }
 
-      // Fallback: DuckDuckGo Instant Answer API (no key needed, limited)
+      // Fallback: DuckDuckGo Instant Answer API (no key needed)
       try {
         const ddg = await fetch(
           `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`
@@ -97,6 +97,8 @@ export default {
             url: t.FirstURL || '',
             snippet: t.Text?.slice(0, 200) || '',
           }));
+          // v1.1.0: Ingest DDG results into brain too
+          await ingestIntoBrain(query, answer, results, env);
           return json({ ok: true, query, answer, results, provider: 'duckduckgo', count: results.length });
         }
       } catch (e) { console.error('DDG error:', e?.message); }
@@ -112,7 +114,7 @@ export default {
 
       try {
         const r = await fetch(targetUrl, {
-          headers: { 'User-Agent': 'Falkor-Web/1.0 (AI assistant; +https://falkor.luckdragon.io)' },
+          headers: { 'User-Agent': 'Falkor-Web/1.1 (AI assistant; +https://falkor.luckdragon.io)' },
           cf: { cacheEverything: false },
         });
         if (!r.ok) return json({ ok: false, error: `Fetch failed: ${r.status}` }, 502);
@@ -123,8 +125,6 @@ export default {
         }
 
         let text = await r.text();
-
-        // Strip HTML
         if (contentType.includes('html')) {
           text = text
             .replace(/<script[\s\S]*?<\/script>/gi, '')
@@ -136,7 +136,6 @@ export default {
 
         const truncated = text.slice(0, 8000);
 
-        // Optionally store in brain
         if (store) {
           await fetch(`${BRAIN_URL}/ingest/text`, {
             method: 'POST',
