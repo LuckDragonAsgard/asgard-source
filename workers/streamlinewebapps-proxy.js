@@ -1,9 +1,427 @@
-// streamlinewebapps-proxy v22 — fixes: proxy /ideas /stats /vote, live stats
+// streamlinewebapps-proxy v23 — cache control, rate limiting, legal pages, share button, counter animation, footer links
 const SUPABASE = "https://huvfgenbcaiicatvtxak.supabase.co/functions/v1/streamline";
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,POST,OPTIONS", "Access-Control-Allow-Headers": "Content-Type,Authorization" };
 
+// In-memory rate limiter
+const _rl = new Map();
+function rateOk(ip, key, max, windowMs=60000) {
+  const k = ip+':'+key, now = Date.now();
+  let w = _rl.get(k);
+  if (!w || now > w.r) w = {c:0, r:now+windowMs};
+  w.c++; _rl.set(k,w);
+  return w.c <= max;
+}
+
 // API routes that should be proxied to Supabase
-const API_ROUTES = ["/ideas", "/stats", "/vote", "/chat", "/submit"];
+const API_ROUTES = ["/ideas", "/stats", "/vote", "/chat", "/submit", "/analytics"];
+
+const PRIVACY_HTML = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Privacy Policy — Streamline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#fafaf8;--white:#ffffff;--surface:#f4f4f0;--surface-2:#eeede9;
+  --border:#e5e4e0;--border-2:#d5d4cf;
+  --ink:#1a1a18;--ink-2:#5a5a56;--ink-3:#9a9994;
+  --accent:#4f46e5;--accent-light:#ede9fe;
+  --r:10px;--r-lg:16px;
+}
+html{background:var(--bg);color:var(--ink);font-family:'Inter',sans-serif;font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+nav{background:rgba(250,250,248,.92);backdrop-filter:blur(16px);border-bottom:1px solid var(--border);padding:0 40px}
+.nav-inner{max-width:1080px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:58px}
+.logo{font-family:'Syne',sans-serif;font-weight:800;font-size:19px;letter-spacing:-.03em;display:flex;align-items:center;gap:8px;cursor:pointer}
+.logo-mark{width:28px;height:28px;background:var(--accent);border-radius:7px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:800}
+main{max-width:900px;margin:0 auto;padding:60px 40px}
+h1{font-family:'Syne',sans-serif;font-size:48px;font-weight:800;letter-spacing:-.03em;line-height:1.1;margin-bottom:8px;color:var(--ink)}
+.updated{font-size:14px;color:var(--ink-3);margin-bottom:44px}
+section{margin-bottom:48px}
+h2{font-family:'Syne',sans-serif;font-size:24px;font-weight:700;letter-spacing:-.02em;margin-bottom:12px;margin-top:28px}
+h2:first-child{margin-top:0}
+p{margin-bottom:14px;color:var(--ink-2);line-height:1.8}
+ul,ol{margin-left:20px;margin-bottom:14px}
+li{margin-bottom:8px;color:var(--ink-2);line-height:1.7}
+footer{border-top:1px solid var(--border);padding:36px 40px;background:var(--white);margin-top:60px}
+.foot-inner{max-width:1080px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.foot-logo{font-family:'Syne',sans-serif;font-size:16px;font-weight:800;letter-spacing:-.02em;display:flex;align-items:center;gap:7px}
+.foot-logo .logo-mark{width:22px;height:22px;font-size:11px}
+.foot-links{display:flex;gap:20px}
+.foot-links a{font-size:13px;color:var(--ink-2)}
+.foot-links a:hover{color:var(--accent)}
+footer p{font-size:13px;color:var(--ink-3);margin:0}
+@media(max-width:768px){
+  main,nav{padding-left:20px;padding-right:20px}
+  h1{font-size:32px}
+  h2{font-size:20px}
+  .foot-inner{flex-direction:column;gap:8px;text-align:center}
+  .foot-links{justify-content:center}
+}
+</style></head><body>
+<nav>
+  <div class="nav-inner">
+    <a href="/" class="logo"><div class="logo-mark">✦</div>Streamline</a>
+  </div>
+</nav>
+<main>
+  <h1>Privacy Policy</h1>
+  <p class="updated">Last updated: April 2026</p>
+
+  <section>
+    <p>Streamline ("we", "us", "our", or "Company") operates the streamlinewebapps.com website and related services. This page informs you of our policies regarding the collection, use, and disclosure of personal data when you use our service.</p>
+  </section>
+
+  <section>
+    <h2>1. Information We Collect</h2>
+    <p>We collect several types of information for various purposes:</p>
+    <ul>
+      <li><strong>Account Information:</strong> When you submit an idea, we collect your name, email address, phone number (optional), app title, category, and idea description.</li>
+      <li><strong>Technical Information:</strong> We collect your IP address (via Cloudflare CF-Connecting-IP header) and generate an anonymous fingerprint for voting purposes.</li>
+      <li><strong>Payment Information:</strong> Payment processing is handled entirely by Stripe. We do not store credit card details.</li>
+      <li><strong>Usage Data:</strong> We track which ideas you vote for, stored locally in your browser.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>2. How We Use Your Information</h2>
+    <ul>
+      <li>To review and potentially build your submitted idea</li>
+      <li>To process payments and manage your account</li>
+      <li>To calculate and pay commissions on app revenue</li>
+      <li>To prevent fraud and abuse through IP-based rate limiting</li>
+      <li>To allow community voting on idea popularity</li>
+      <li>To send you updates about your ideas and the platform</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>3. Australian Privacy Principles (APPs)</h2>
+    <p>We comply with Australia's Privacy Act 1988 and the Australian Privacy Principles. You have the right to:</p>
+    <ul>
+      <li>Request access to personal information we hold about you</li>
+      <li>Ask us to correct inaccurate or incomplete information</li>
+      <li>Request deletion of your data (subject to legal retention requirements)</li>
+      <li>Object to our use of your information</li>
+    </ul>
+    <p>To exercise these rights, contact us at hello@streamlinewebapps.com.</p>
+  </section>
+
+  <section>
+    <h2>4. Data Storage</h2>
+    <p>Your information is stored securely in Supabase (Australia region) and protected with SSL encryption. We retain submission data indefinitely to calculate ongoing commissions. Voting records are stored for 12 months.</p>
+  </section>
+
+  <section>
+    <h2>5. Third-Party Services</h2>
+    <ul>
+      <li><strong>Stripe:</strong> Payment processing. See Stripe's privacy policy at stripe.com/privacy.</li>
+      <li><strong>Supabase:</strong> Data storage. See Supabase's privacy policy at supabase.com/privacy.</li>
+      <li><strong>Cloudflare:</strong> CDN and infrastructure. See Cloudflare's privacy policy at cloudflare.com/privacypolicy.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>6. Security</h2>
+    <p>We implement industry-standard security measures to protect your data. However, no method of transmission over the Internet is 100% secure. While we strive to protect your personal information, we cannot guarantee its absolute security.</p>
+  </section>
+
+  <section>
+    <h2>7. Changes to This Policy</h2>
+    <p>We may update this privacy policy periodically. We will notify you of any changes by posting the new policy on this page and updating the "Last updated" date.</p>
+  </section>
+
+  <section>
+    <h2>8. Contact Us</h2>
+    <p>If you have any questions about this privacy policy or our practices, please contact us at hello@streamlinewebapps.com.</p>
+  </section>
+</main>
+<footer>
+  <div class="foot-inner">
+    <div class="foot-logo"><div class="logo-mark">✦</div>Streamline</div>
+    <div class="foot-links">
+      <a href="/privacy">Privacy</a>
+      <a href="/terms">Terms</a>
+      <a href="/refunds">Refunds</a>
+    </div>
+    <p>© 2026 Luck Dragon</p>
+  </div>
+</footer>
+</body></html>`;
+
+const TERMS_HTML = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Terms of Service — Streamline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#fafaf8;--white:#ffffff;--surface:#f4f4f0;--surface-2:#eeede9;
+  --border:#e5e4e0;--border-2:#d5d4cf;
+  --ink:#1a1a18;--ink-2:#5a5a56;--ink-3:#9a9994;
+  --accent:#4f46e5;--accent-light:#ede9fe;
+  --r:10px;--r-lg:16px;
+}
+html{background:var(--bg);color:var(--ink);font-family:'Inter',sans-serif;font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+nav{background:rgba(250,250,248,.92);backdrop-filter:blur(16px);border-bottom:1px solid var(--border);padding:0 40px}
+.nav-inner{max-width:1080px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:58px}
+.logo{font-family:'Syne',sans-serif;font-weight:800;font-size:19px;letter-spacing:-.03em;display:flex;align-items:center;gap:8px;cursor:pointer}
+.logo-mark{width:28px;height:28px;background:var(--accent);border-radius:7px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:800}
+main{max-width:900px;margin:0 auto;padding:60px 40px}
+h1{font-family:'Syne',sans-serif;font-size:48px;font-weight:800;letter-spacing:-.03em;line-height:1.1;margin-bottom:8px;color:var(--ink)}
+.updated{font-size:14px;color:var(--ink-3);margin-bottom:44px}
+section{margin-bottom:48px}
+h2{font-family:'Syne',sans-serif;font-size:24px;font-weight:700;letter-spacing:-.02em;margin-bottom:12px;margin-top:28px}
+h2:first-child{margin-top:0}
+p{margin-bottom:14px;color:var(--ink-2);line-height:1.8}
+ul,ol{margin-left:20px;margin-bottom:14px}
+li{margin-bottom:8px;color:var(--ink-2);line-height:1.7}
+footer{border-top:1px solid var(--border);padding:36px 40px;background:var(--white);margin-top:60px}
+.foot-inner{max-width:1080px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.foot-logo{font-family:'Syne',sans-serif;font-size:16px;font-weight:800;letter-spacing:-.02em;display:flex;align-items:center;gap:7px}
+.foot-logo .logo-mark{width:22px;height:22px;font-size:11px}
+.foot-links{display:flex;gap:20px}
+.foot-links a{font-size:13px;color:var(--ink-2)}
+.foot-links a:hover{color:var(--accent)}
+footer p{font-size:13px;color:var(--ink-3);margin:0}
+@media(max-width:768px){
+  main,nav{padding-left:20px;padding-right:20px}
+  h1{font-size:32px}
+  h2{font-size:20px}
+  .foot-inner{flex-direction:column;gap:8px;text-align:center}
+  .foot-links{justify-content:center}
+}
+</style></head><body>
+<nav>
+  <div class="nav-inner">
+    <a href="/" class="logo"><div class="logo-mark">✦</div>Streamline</a>
+  </div>
+</nav>
+<main>
+  <h1>Terms of Service</h1>
+  <p class="updated">Last updated: April 2026</p>
+
+  <section>
+    <p>These Terms of Service ("Terms") govern your use of Streamline, operated by Luck Dragon Pty Ltd ("Company", "we", "us", or "our"). By accessing or using Streamline, you agree to be bound by these Terms.</p>
+  </section>
+
+  <section>
+    <h2>1. Service Description</h2>
+    <p>Streamline is a platform where users submit app ideas in exchange for a one-time fee. Community members vote on ideas. Selected ideas are built by our team, and submitters receive a lifetime commission on revenue generated by the app:</p>
+    <ul>
+      <li><strong>Standard ($29 AUD):</strong> 20% lifetime commission, 7-day review window, 30-day refund guarantee</li>
+      <li><strong>Priority ($99 AUD):</strong> 25% lifetime commission, priority queue placement, 14-day refund guarantee</li>
+      <li><strong>Equity ($299 AUD):</strong> 30% lifetime commission, 48-hour build window, 14-day refund guarantee</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>2. Intellectual Property</h2>
+    <p><strong>Standard and Priority Tiers:</strong> Streamline retains full ownership of the built application and all source code. You retain the right to the lifetime commission percentage agreed.</p>
+    <p><strong>Equity Tier:</strong> You co-own the application with Streamline and receive co-founder credit in the product. Both parties own the intellectual property equally and may not exploit it separately without consent.</p>
+  </section>
+
+  <section>
+    <h2>3. Payment and Refunds</h2>
+    <p>Payments are processed via Stripe using AUD currency. A refund is guaranteed if we do not build your idea within the timeframe specified by your tier (30 days for Standard, 14 days for Priority/Equity).</p>
+    <p>Refunds are processed to your original payment method within 5–10 business days of approval.</p>
+  </section>
+
+  <section>
+    <h2>4. Commission Payments</h2>
+    <p>Once your app launches and generates revenue, we calculate your commission monthly. Payments are sent via bank transfer when your balance reaches $50 AUD in a given month, within 5 business days of month end.</p>
+    <p>You are responsible for declaring commission income for tax purposes in your jurisdiction.</p>
+  </section>
+
+  <section>
+    <h2>5. Submission Requirements</h2>
+    <p>By submitting an idea, you certify that:</p>
+    <ul>
+      <li>You own or have rights to the idea you're submitting</li>
+      <li>The idea does not infringe on third-party intellectual property</li>
+      <li>The information you provide is accurate and truthful</li>
+      <li>You are of legal age (18+) and eligible to enter into this agreement</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>6. Voting and Community</h2>
+    <p>Ideas are ranked by community votes. Each user can vote once per idea. Voting is anonymous but tied to a browser fingerprint to prevent duplicate votes. We may disqualify ideas that violate these terms or contain illegal, offensive, or defamatory content.</p>
+  </section>
+
+  <section>
+    <h2>7. Prohibited Content</h2>
+    <p>Ideas must not contain:</p>
+    <ul>
+      <li>Illegal activity or content that violates Australian law</li>
+      <li>Hate speech, discrimination, or harassment</li>
+      <li>Explicit sexual or violent content</li>
+      <li>Misinformation or scam-related schemes</li>
+      <li>Infringement of third-party rights</li>
+    </ul>
+    <p>We reserve the right to reject or remove any idea that violates these standards without refund.</p>
+  </section>
+
+  <section>
+    <h2>8. Governing Law</h2>
+    <p>These Terms are governed by the laws of Victoria, Australia, and you agree to the exclusive jurisdiction of courts in Victoria.</p>
+  </section>
+
+  <section>
+    <h2>9. Limitation of Liability</h2>
+    <p>To the extent permitted by law, Luck Dragon and Streamline are not liable for indirect, incidental, or consequential damages, including lost profits or revenue.</p>
+  </section>
+
+  <section>
+    <h2>10. Changes to Terms</h2>
+    <p>We may update these Terms at any time. Continued use of Streamline constitutes acceptance of updated Terms.</p>
+  </section>
+
+  <section>
+    <h2>11. Contact</h2>
+    <p>For questions about these Terms, contact us at hello@streamlinewebapps.com.</p>
+  </section>
+</main>
+<footer>
+  <div class="foot-inner">
+    <div class="foot-logo"><div class="logo-mark">✦</div>Streamline</div>
+    <div class="foot-links">
+      <a href="/privacy">Privacy</a>
+      <a href="/terms">Terms</a>
+      <a href="/refunds">Refunds</a>
+    </div>
+    <p>© 2026 Luck Dragon</p>
+  </div>
+</footer>
+</body></html>`;
+
+const REFUNDS_HTML = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>Refund Policy — Streamline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#fafaf8;--white:#ffffff;--surface:#f4f4f0;--surface-2:#eeede9;
+  --border:#e5e4e0;--border-2:#d5d4cf;
+  --ink:#1a1a18;--ink-2:#5a5a56;--ink-3:#9a9994;
+  --accent:#4f46e5;--accent-light:#ede9fe;
+  --r:10px;--r-lg:16px;
+}
+html{background:var(--bg);color:var(--ink);font-family:'Inter',sans-serif;font-size:16px;line-height:1.6;-webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+nav{background:rgba(250,250,248,.92);backdrop-filter:blur(16px);border-bottom:1px solid var(--border);padding:0 40px}
+.nav-inner{max-width:1080px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;height:58px}
+.logo{font-family:'Syne',sans-serif;font-weight:800;font-size:19px;letter-spacing:-.03em;display:flex;align-items:center;gap:8px;cursor:pointer}
+.logo-mark{width:28px;height:28px;background:var(--accent);border-radius:7px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:800}
+main{max-width:900px;margin:0 auto;padding:60px 40px}
+h1{font-family:'Syne',sans-serif;font-size:48px;font-weight:800;letter-spacing:-.03em;line-height:1.1;margin-bottom:8px;color:var(--ink)}
+.updated{font-size:14px;color:var(--ink-3);margin-bottom:44px}
+section{margin-bottom:48px}
+h2{font-family:'Syne',sans-serif;font-size:24px;font-weight:700;letter-spacing:-.02em;margin-bottom:12px;margin-top:28px}
+h2:first-child{margin-top:0}
+p{margin-bottom:14px;color:var(--ink-2);line-height:1.8}
+ul,ol{margin-left:20px;margin-bottom:14px}
+li{margin-bottom:8px;color:var(--ink-2);line-height:1.7}
+.tier-box{background:var(--white);border:1px solid var(--border);border-radius:var(--r-lg);padding:24px;margin:16px 0}
+.tier-box h3{font-family:'Syne',sans-serif;font-size:18px;font-weight:700;margin-bottom:8px;color:var(--ink)}
+footer{border-top:1px solid var(--border);padding:36px 40px;background:var(--white);margin-top:60px}
+.foot-inner{max-width:1080px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.foot-logo{font-family:'Syne',sans-serif;font-size:16px;font-weight:800;letter-spacing:-.02em;display:flex;align-items:center;gap:7px}
+.foot-logo .logo-mark{width:22px;height:22px;font-size:11px}
+.foot-links{display:flex;gap:20px}
+.foot-links a{font-size:13px;color:var(--ink-2)}
+.foot-links a:hover{color:var(--accent)}
+footer p{font-size:13px;color:var(--ink-3);margin:0}
+@media(max-width:768px){
+  main,nav{padding-left:20px;padding-right:20px}
+  h1{font-size:32px}
+  h2{font-size:20px}
+  .foot-inner{flex-direction:column;gap:8px;text-align:center}
+  .foot-links{justify-content:center}
+}
+</style></head><body>
+<nav>
+  <div class="nav-inner">
+    <a href="/" class="logo"><div class="logo-mark">✦</div>Streamline</a>
+  </div>
+</nav>
+<main>
+  <h1>Refund Policy</h1>
+  <p class="updated">Last updated: April 2026</p>
+
+  <section>
+    <p>At Streamline, we stand behind our commitment to build your idea if it's selected by the community. This policy outlines when and how refunds are provided.</p>
+  </section>
+
+  <section>
+    <h2>Refund Guarantees by Tier</h2>
+
+    <div class="tier-box">
+      <h3>Standard Tier ($29 AUD)</h3>
+      <p><strong>30-day refund guarantee.</strong> If we have not begun development on your idea within 30 days of your submission, you are eligible for a full refund of your $29 AUD submission fee.</p>
+      <p><strong>Conditions:</strong> Your idea must have been submitted in good faith and not violate our Terms of Service.</p>
+    </div>
+
+    <div class="tier-box">
+      <h3>Priority Tier ($99 AUD)</h3>
+      <p><strong>14-day refund guarantee.</strong> If we have not begun development on your idea within 14 days of your submission, you are eligible for a full refund of your $99 AUD submission fee.</p>
+      <p><strong>Conditions:</strong> Your idea must receive enough community votes to be queued for development. If insufficient votes are received, we will notify you by day 14 and process a refund.</p>
+    </div>
+
+    <div class="tier-box">
+      <h3>Equity Tier ($299 AUD)</h3>
+      <p><strong>14-day refund guarantee.</strong> We commit to beginning development within 48 hours. If development has not begun within 48 hours, we will contact you to reschedule. If development cannot start within 14 days, a full refund of $299 AUD is processed.</p>
+      <p><strong>Conditions:</strong> Equity tier submissions are prioritized and built with guaranteed timelines.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>How to Request a Refund</h2>
+    <p>To request a refund, email hello@streamlinewebapps.com with:</p>
+    <ul>
+      <li>Your submitted idea title</li>
+      <li>The email address associated with your submission</li>
+      <li>The reason for your refund request</li>
+    </ul>
+    <p>We will review your request and respond within 2 business days.</p>
+  </section>
+
+  <section>
+    <h2>Refund Processing</h2>
+    <p>Approved refunds are processed to your original payment method within 5–10 business days. If your payment was made via Stripe, the refund will appear as a credit to the card or payment method used.</p>
+  </section>
+
+  <section>
+    <h2>What Does NOT Qualify for Refund</h2>
+    <ul>
+      <li>Ideas rejected due to Terms of Service violations (illegal, offensive, or defamatory content)</li>
+      <li>Requests submitted more than 30 days after submission (beyond the guarantee window)</li>
+      <li>Ideas that have already been built and shipped</li>
+      <li>Refunds requested after the refund period has expired</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Commission Disputes</h2>
+    <p>If you believe commission calculations are incorrect, contact us at hello@streamlinewebapps.com within 30 days of the relevant payment. We will audit the transaction and either explain the calculation or issue a corrected payment.</p>
+  </section>
+
+  <section>
+    <h2>Questions?</h2>
+    <p>If you have questions about this refund policy, reach out to hello@streamlinewebapps.com and we'll be happy to help.</p>
+  </section>
+</main>
+<footer>
+  <div class="foot-inner">
+    <div class="foot-logo"><div class="logo-mark">✦</div>Streamline</div>
+    <div class="foot-links">
+      <a href="/privacy">Privacy</a>
+      <a href="/terms">Terms</a>
+      <a href="/refunds">Refunds</a>
+    </div>
+    <p>© 2026 Luck Dragon</p>
+  </div>
+</footer>
+</body></html>`;
 
 export default {
   async fetch(request, env) {
@@ -12,10 +430,28 @@ export default {
 
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
 
-    if (path === "/health") return new Response(JSON.stringify({ ok: true, version: 22 }), { headers: { ...CORS, "Content-Type": "application/json" } });
+    if (path === "/health") return new Response(JSON.stringify({ ok: true, version: 23 }), { headers: { ...CORS, "Content-Type": "application/json" } });
 
-    // Proxy all API routes to Supabase
+    // Legal routes
+    if (path === "/privacy") return new Response(PRIVACY_HTML, { headers: { "Content-Type": "text/html;charset=utf-8", "Cache-Control": "public,max-age=3600" } });
+    if (path === "/terms") return new Response(TERMS_HTML, { headers: { "Content-Type": "text/html;charset=utf-8", "Cache-Control": "public,max-age=3600" } });
+    if (path === "/refunds") return new Response(REFUNDS_HTML, { headers: { "Content-Type": "text/html;charset=utf-8", "Cache-Control": "public,max-age=3600" } });
+
+    // Proxy all API routes to Supabase with rate limiting
     if (API_ROUTES.includes(path)) {
+      const ip = request.headers.get("CF-Connecting-IP") || "";
+
+      // Apply rate limiting based on route
+      if (path === "/submit" && !rateOk(ip, "sub", 5)) {
+        return new Response(JSON.stringify({error:"Too many requests"}), {status:429, headers:{...CORS,"Content-Type":"application/json"}});
+      }
+      if (path === "/chat" && !rateOk(ip, "chat", 20)) {
+        return new Response(JSON.stringify({error:"Too many requests"}), {status:429, headers:{...CORS,"Content-Type":"application/json"}});
+      }
+      if (path === "/vote" && !rateOk(ip, "vote", 30)) {
+        return new Response(JSON.stringify({error:"Too many requests"}), {status:429, headers:{...CORS,"Content-Type":"application/json"}});
+      }
+
       const target = SUPABASE + path + url.search;
       const h = new Headers(request.headers);
       h.delete("host");
@@ -28,6 +464,7 @@ export default {
         });
         const rh = new Headers(pr.headers);
         Object.entries(CORS).forEach(([k,v]) => rh.set(k, v));
+        rh.set("Cache-Control", "no-cache");
         return new Response(pr.body, { status: pr.status, headers: rh });
       } catch (e) {
         return new Response(JSON.stringify({ error: "Upstream error", detail: e.message }), { status: 502, headers: { ...CORS, "Content-Type": "application/json" } });
@@ -37,7 +474,7 @@ export default {
     // Serve the HTML shell for everything else
     return new Response(HTML, {
       status: 200,
-      headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-cache, no-store, must-revalidate", "X-Streamline-Version": "22" }
+      headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, s-maxage=300, stale-while-revalidate=60", "X-Streamline-Version": "23" }
     });
   }
 };
@@ -122,7 +559,7 @@ h2{font-family:'Syne',sans-serif;font-size:clamp(26px,3.8vw,42px);font-weight:80
 .idea:hover{border-color:var(--border-2);box-shadow:0 2px 10px rgba(0,0,0,.05)}
 .idea-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:11px}
 .idea-icon{width:38px;height:38px;background:var(--surface);border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:18px;border:1px solid var(--border)}
-.vote-btn{display:flex;flex-direction:column;align-items:center;gap:1px;padding:6px 10px;background:var(--surface);border:1px solid var(--border);border-radius:7px;min-width:44px;cursor:pointer;transition:.15s}
+.vote-btn{display:flex;flex-direction:column;align-items:center;gap:1px;padding:6px 10px;background:var(--surface);border:1px solid var(--border);border-radius:7px;min-width:44px;cursor:pointer;transition:.15s;position:relative}
 .vote-btn:hover{border-color:var(--accent);background:var(--accent-light)}
 .vote-btn.voted{background:var(--accent-light);border-color:var(--accent)}
 .vote-arr{font-size:10px;color:var(--ink-3)}
@@ -130,7 +567,11 @@ h2{font-family:'Syne',sans-serif;font-size:clamp(26px,3.8vw,42px);font-weight:80
 .vote-btn.voted .vote-arr,.vote-btn.voted .vote-cnt{color:var(--accent)}
 .idea h4{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;margin-bottom:5px;letter-spacing:-.01em}
 .idea-desc{font-size:13px;color:var(--ink-2);font-weight:300;line-height:1.5;flex:1;margin-bottom:12px}
-.idea-foot{display:flex;gap:5px;flex-wrap:wrap}
+.idea-foot{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+.share-btn{padding:4px 9px;background:var(--surface);border:1px solid var(--border);border-radius:7px;font-size:12px;cursor:pointer;transition:.15s;color:var(--ink-2);position:relative}
+.share-btn:hover{border-color:var(--accent);color:var(--accent)}
+.share-tooltip{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:4px 8px;border-radius:5px;font-size:11px;white-space:nowrap;pointer-events:none;opacity:0;transition:.2s;margin-bottom:6px}
+.share-tooltip.show{opacity:1}
 .badge{padding:2px 8px;border-radius:5px;font-size:11px;font-weight:500;border:1px solid transparent}
 .b-live{background:var(--green-bg);border-color:#bbf7d0;color:var(--green)}
 .b-building{background:var(--amber-bg);border-color:#fde68a;color:var(--amber)}
@@ -182,6 +623,9 @@ footer{border-top:1px solid var(--border);padding:36px 40px;background:var(--whi
 .foot-inner{max-width:1080px;margin:0 auto;display:flex;align-items:center;justify-content:space-between}
 .foot-logo{font-family:'Syne',sans-serif;font-size:16px;font-weight:800;letter-spacing:-.02em;display:flex;align-items:center;gap:7px}
 .foot-logo .logo-mark{width:22px;height:22px;font-size:11px}
+.foot-links{display:flex;gap:18px;font-size:13px}
+.foot-links a{color:var(--ink-2);transition:.15s}
+.foot-links a:hover{color:var(--accent)}
 footer p{font-size:13px;color:var(--ink-3)}
 .chat-bubble{position:fixed;bottom:22px;right:22px;z-index:95;width:52px;height:52px;background:var(--ink);border-radius:50%;font-size:20px;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 24px rgba(0,0,0,.2);animation:float 3s ease-in-out infinite;color:#fff;transition:.15s}
 .chat-bubble:hover{transform:scale(1.08)}
@@ -365,7 +809,12 @@ footer p{font-size:13px;color:var(--ink-3)}
 <footer>
   <div class="foot-inner">
     <div class="foot-logo"><div class="logo-mark">✦</div>Streamline</div>
-    <p>Built in Melbourne by Paddy Gallivan · Part of the Asgard ecosystem · v22 · © 2026</p>
+    <div class="foot-links">
+      <a href="/privacy">Privacy</a>
+      <a href="/terms">Terms</a>
+      <a href="/refunds">Refunds</a>
+    </div>
+    <p>Built in Melbourne by Paddy Gallivan · Part of the Asgard ecosystem · v23 · © 2026</p>
   </div>
 </footer>
 <button class="chat-bubble" id="chat-bubble" onclick="oc()">✦</button>
@@ -393,6 +842,17 @@ var STRIPE={Standard:"https://buy.stripe.com/7sYeVc7Y1aMX7N6fwy9IQ00",Priority:"
 
 function fmt(n){return n>=1000?(n/1000).toFixed(1)+'k':String(n);}
 
+function animCount(el, to, prefix, suffix) {
+  const start = Date.now(), dur = 1200;
+  const tick = () => {
+    const p = Math.min((Date.now()-start)/dur, 1);
+    const ease = 1-Math.pow(1-p,3);
+    el.textContent = prefix + Math.round(ease*to).toLocaleString('en-AU') + suffix;
+    if (p < 1) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
 async function loadStats(){
   try{
     var r=await fetch("/stats");
@@ -402,9 +862,9 @@ async function loadStats(){
     document.getElementById("tb-live").innerHTML='<span class="dot"></span>'+live+' apps live';
     document.getElementById("tb-mrr").textContent='$'+fmt(mrr)+' MRR';
     document.getElementById("tb-paid").textContent='$'+paid.toLocaleString('en-AU',{maximumFractionDigits:0})+' paid out';
-    document.getElementById("hs-live").textContent=live;
-    document.getElementById("hs-mrr").textContent='$'+fmt(mrr);
-    document.getElementById("hs-paid").textContent='$'+paid.toLocaleString('en-AU',{maximumFractionDigits:0});
+    animCount(document.getElementById("hs-live"), live, '', '');
+    animCount(document.getElementById("hs-mrr"), mrr, '$', '');
+    animCount(document.getElementById("hs-paid"), paid, '$', '');
   }catch(e){}
 }
 
@@ -425,7 +885,7 @@ function renderIdeas(IDEAS){
     var bt=x.status==="live"?"● Live":x.status==="building"?"◐ Building":"○ Queued";
     var rv=x.rev>0?'<span class="badge b-rev">$'+x.rev.toLocaleString()+'/mo</span>':"";
     var iv=voted.indexOf(x.id)!==-1;
-    h+='<div class="idea" data-cat="'+x.cat+'"><div class="idea-top"><div class="idea-icon">'+x.emoji+'</div><button class="vote-btn'+(iv?" voted":"")+'" onclick="vt('+x.id+')" id="vb-'+x.id+'"><span class="vote-arr">▲</span><span class="vote-cnt" id="vc-'+x.id+'">'+x.votes+'</span></button></div><h4>'+x.title+'</h4><p class="idea-desc">'+x.desc+'</p><div class="idea-foot"><span class="badge '+bc+'">'+bt+'</span><span class="badge b-cat">'+x.cat+'</span>'+rv+'</div></div>';
+    h+='<div class="idea" data-cat="'+x.cat+'"><div class="idea-top"><div class="idea-icon">'+x.emoji+'</div><button class="vote-btn'+(iv?" voted":"")+'" onclick="vt('+x.id+')" id="vb-'+x.id+'"><span class="vote-arr">▲</span><span class="vote-cnt" id="vc-'+x.id+'">'+x.votes+'</span></button></div><h4>'+x.title+'</h4><p class="idea-desc">'+x.desc+'</p><div class="idea-foot"><span class="badge '+bc+'">'+bt+'</span><span class="badge b-cat">'+x.cat+'</span>'+rv+'<button class="share-btn" onclick="sh('+x.id+')"><span>🔗 Share</span><span class="share-tooltip" id="st-'+x.id+'">Copied!</span></button></div></div>';
   }
   g.innerHTML=h;
 }
@@ -438,6 +898,14 @@ async function vt(id){
   if(cnt)cnt.textContent=parseInt(cnt.textContent)+1;
   voted.push(id);localStorage.setItem("slv",JSON.stringify(voted));
   try{await fetch("/vote",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({idea_id:id,fingerprint:fp()})});}catch(e){}
+}
+
+function sh(id){
+  var url=window.location.origin+'/?idea='+id;
+  navigator.clipboard.writeText(url).then(function(){
+    var tt=document.getElementById("st-"+id);
+    if(tt){tt.classList.add("show");setTimeout(function(){tt.classList.remove("show");},1600);}
+  }).catch(function(){});
 }
 
 function fp(){var f=localStorage.getItem("sl_fp");if(!f){f=Math.random().toString(36).slice(2)+Date.now().toString(36);localStorage.setItem("sl_fp",f);}return f;}
