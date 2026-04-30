@@ -1,5 +1,5 @@
 // asgard-ai v5.7.2-stopgap-v11-tools: multi-provider (Anthropic/OpenAI/Gemini) + DALL-E + vision
-const VERSION = '6.1.0-spend-rl-fix';
+const VERSION = '6.2.0-phase1-groq-gateway';
 const WORKER_NAME = "asgard-ai";
 
 // --- PIN auth helper (v1.1.0 security patch) ---
@@ -90,15 +90,23 @@ function makeCors(origin) {
   };
 }
 const CORS = makeCors("https://asgard.luckdragon.io");
-const SYSTEM_PROMPT = "You are Asgard AI for Paddy, Jacky, and George. Be direct, efficient, action-oriented. Be concrete, name projects, no fluff. You have persistent memory — use save_memory to record important facts (project states, decisions, warnings) and read_messages/send_message for team comms.";
+const SYSTEM_PROMPT = "You are Falkor AI for Paddy, Jacky, and George. Be direct, efficient, action-oriented. Be concrete, name projects, no fluff. You have persistent memory — use save_memory to record important facts (project states, decisions, warnings) and read_messages/send_message for team comms.";
 
 // Model registry: key = shorthand, value = {provider, full model id}
+// CF AI Gateway base (auto-provisions "falkor" gateway on first request)
+const CF_GATEWAY_BASE = "https://gateway.ai.cloudflare.com/v1/a6f47c17811ee2f8b6caeb8f38768c20/falkor";
+const CF_ACCOUNT_ID   = "a6f47c17811ee2f8b6caeb8f38768c20";
+
 const MODELS = {
-  // Anthropic
+  // ── Free tier first (Groq — 1000 req/day, OpenAI-compatible) ──────────────
+  "groq-fast":  { provider: "groq", id: "llama-3.1-8b-instant" },       // ~200 tok/s, near-instant
+  "groq":       { provider: "groq", id: "llama-3.3-70b-versatile" },    // best free quality
+  "groq-think": { provider: "groq", id: "qwen-qwq-32b" },               // free reasoning model
+  // ── Anthropic (via AI Gateway) ────────────────────────────────────────────
   haiku:  { provider: "anthropic", id: "claude-haiku-4-5-20251001" },
   sonnet: { provider: "anthropic", id: "claude-sonnet-4-6" },
   opus:   { provider: "anthropic", id: "claude-opus-4-6" },
-  // OpenAI
+  // ── OpenAI (via AI Gateway) ───────────────────────────────────────────────
   "gpt-5":        { provider: "openai", id: "gpt-5" },
   "gpt-5-mini":   { provider: "openai", id: "gpt-5-mini" },
   "gpt-4.1":      { provider: "openai", id: "gpt-4.1" },
@@ -106,12 +114,12 @@ const MODELS = {
   "gpt-4o-mini":  { provider: "openai", id: "gpt-4o-mini" },
   "o3":           { provider: "openai", id: "o3" },
   "o3-mini":      { provider: "openai", id: "o3-mini" },
-  // Google Gemini
+  // ── Google Gemini (via AI Gateway) ───────────────────────────────────────
   "gemini-2.5-pro":   { provider: "gemini", id: "gemini-2.5-pro" },
   "gemini-2.5-flash": { provider: "gemini", id: "gemini-2.5-flash" },
   "gemini-1.5-pro":   { provider: "gemini", id: "gemini-1.5-pro" },
 };
-const DEFAULT_MODEL = "haiku";
+const DEFAULT_MODEL = "groq-fast";  // Free first
 // THUNDER_MEMORY constant removed 2026-04-23 — memory now in asgard-prod.facts
 const ASGARD_BRAIN   = "https://asgard-brain.luckdragon.io";
 
@@ -141,6 +149,9 @@ function resolveModel(input) {
   if (k.startsWith("claude-")) {
     return { provider: "anthropic", id: input };
   }
+  if (k.startsWith("groq-") || k.startsWith("llama-") || k.startsWith("mixtral-") || k.startsWith("qwen-")) {
+    return { provider: "groq", id: input };
+  }
   // Unknown → default to Anthropic with the given id
   return { provider: "anthropic", id: input };
 }
@@ -148,10 +159,16 @@ function resolveModel(input) {
 function quickRoute(message) {
   if (!message) return DEFAULT_MODEL;
   const m = message.toLowerCase();
-  const hardTriggers = ["strategy","architect","design","plan ","refactor","debug","why does","explain why","tradeoff","pros and cons","compare","write code","generate code","fix the","review","audit"];
+  // Hard tasks → Sonnet (paid but best)
+  const hardTriggers = ["strategy","architect","design","plan ","refactor","debug","why does","explain why","tradeoff","pros and cons","compare","write code","generate code","fix the","review","audit","analyse","analyze"];
   if (hardTriggers.some(t => m.includes(t))) return "sonnet";
-  if (m.length > 600) return "sonnet";
-  return "haiku";
+  // Reasoning tasks → Groq think (free)
+  const thinkTriggers = ["step by step","reason","logic","math","calculate","proof","theorem"];
+  if (thinkTriggers.some(t => m.includes(t))) return "groq-think";
+  // Medium tasks → Groq versatile (free, smart)
+  if (m.length > 400) return "groq";
+  // Simple/quick → Groq fast (free, instant)
+  return "groq-fast";
 }
 
 // ---------- Provider adapters ----------
@@ -160,11 +177,10 @@ async function callAnthropic(env, { model, messages, system, max_tokens = 1024, 
   const body = { model, max_tokens, system: system || SYSTEM_PROMPT, messages };
   if (tools && tools.length) body.tools = tools;
   if (stream) body.stream = true;
-  return fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify(body),
-  });
+  const gwUrl = CF_GATEWAY_BASE + "/anthropic/v1/messages";
+  const gwHeaders = { "Content-Type": "application/json", "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" };
+  if (env.CF_API_TOKEN) gwHeaders["cf-aig-authorization"] = "Bearer " + env.CF_API_TOKEN;
+  return fetch(gwUrl, { method: "POST", headers: gwHeaders, body: JSON.stringify(body) });
 }
 
 async function callOpenAI(env, { model, messages, system, max_tokens = 1024, stream = false }) {
@@ -179,7 +195,9 @@ async function callOpenAI(env, { model, messages, system, max_tokens = 1024, str
   if (isNewParam) body.max_completion_tokens = max_tokens;
   else body.max_tokens = max_tokens;
   if (stream) body.stream = true;
-  return fetch("https://api.openai.com/v1/chat/completions", {
+  const _oaiUrl = CF_GATEWAY_BASE + "/openai/v1/chat/completions";
+  const _oaiExtraHdrs = (env.CF_API_TOKEN) ? {"cf-aig-authorization": "Bearer " + env.CF_API_TOKEN} : {};
+  return fetch(_oaiUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": "Bearer " + env.OPENAI_API_KEY },
     body: JSON.stringify(body),
@@ -205,15 +223,58 @@ async function callGemini(env, { model, messages, system, max_tokens = 1024 }) {
 }
 
 // Unified dispatcher: returns { ok, reply, usage, raw }
+// ---------- Groq (free tier: 1000 req/day, OpenAI-compatible) ----------
+async function callGroq(env, { model, messages, system, max_tokens = 1024, stream = false }) {
+  if (!env.GROQ_API_KEY) throw new Error("GROQ_API_KEY missing");
+  const groqMessages = system
+    ? [{ role: "system", content: system }].concat(messages)
+    : messages;
+  const body = { model, messages: groqMessages, max_tokens };
+  if (stream) body.stream = true;
+  const gwUrl = CF_GATEWAY_BASE + "/groq/openai/v1/chat/completions";
+  const headers = {
+    "Content-Type": "application/json",
+    "Authorization": "Bearer " + env.GROQ_API_KEY,
+  };
+  if (env.CF_API_TOKEN) headers["cf-aig-authorization"] = "Bearer " + env.CF_API_TOKEN;
+  return fetch(gwUrl, { method: "POST", headers, body: JSON.stringify(body) });
+}
+
+
+// Unified dispatcher: returns { ok, reply, usage, raw, provider_used }
 async function generate(env, { provider, model, messages, system, max_tokens, tools }) {
+  // ── Groq (free tier, 1000 req/day) ───────────────────────────────────────
+  if (provider === "groq") {
+    if (!env.GROQ_API_KEY) {
+      console.log("[router] GROQ_API_KEY missing, falling back to haiku");
+      return generate(env, { provider: "anthropic", model: "claude-haiku-4-5-20251001", messages, system, max_tokens, tools });
+    }
+    try {
+      const r = await callGroq(env, { model, messages, system, max_tokens });
+      if (r.status === 429 || r.status === 503) {
+        console.log("[router] Groq quota/overload (" + r.status + "), falling back to haiku");
+        return generate(env, { provider: "anthropic", model: "claude-haiku-4-5-20251001", messages, system, max_tokens, tools });
+      }
+      if (!r.ok) { const t = await r.text(); return { ok: false, error: "groq " + r.status + ": " + t.slice(0, 300) }; }
+      const d = await r.json();
+      const choice = d.choices && d.choices[0];
+      const reply = (choice && choice.message && choice.message.content) || "";
+      return { ok: true, reply, usage: d.usage || null, raw: d, provider_used: "groq" };
+    } catch(e) {
+      console.log("[router] Groq exception, falling back to haiku:", e.message);
+      return generate(env, { provider: "anthropic", model: "claude-haiku-4-5-20251001", messages, system, max_tokens, tools });
+    }
+  }
+  // ── OpenAI ────────────────────────────────────────────────────────────────
   if (provider === "openai") {
     const r = await callOpenAI(env, { model, messages, system, max_tokens });
     if (!r.ok) { const t = await r.text(); return { ok: false, error: "openai " + r.status + ": " + t.slice(0, 300) }; }
     const d = await r.json();
     const choice = d.choices && d.choices[0];
     const reply = (choice && choice.message && choice.message.content) || "";
-    return { ok: true, reply, usage: d.usage || null, raw: d };
+    return { ok: true, reply, usage: d.usage || null, raw: d, provider_used: "openai" };
   }
+  // ── Gemini ────────────────────────────────────────────────────────────────
   if (provider === "gemini") {
     const r = await callGemini(env, { model, messages, system, max_tokens });
     if (!r.ok) { const t = await r.text(); return { ok: false, error: "gemini " + r.status + ": " + t.slice(0, 300) }; }
@@ -221,14 +282,14 @@ async function generate(env, { provider, model, messages, system, max_tokens, to
     const cand = d.candidates && d.candidates[0];
     const parts = cand && cand.content && cand.content.parts;
     const reply = (parts && parts[0] && parts[0].text) || "";
-    return { ok: true, reply, usage: d.usageMetadata || null, raw: d };
+    return { ok: true, reply, usage: d.usageMetadata || null, raw: d, provider_used: "gemini" };
   }
-  // Default: Anthropic
+  // ── Anthropic (default) ───────────────────────────────────────────────────
   const r = await callAnthropic(env, { model, messages, system, max_tokens, tools });
   if (!r.ok) { const t = await r.text(); return { ok: false, error: "anthropic " + r.status + ": " + t.slice(0, 300) }; }
   const d = await r.json();
   const reply = (d.content && d.content[0] && d.content[0].text) || "";
-  return { ok: true, reply, usage: d.usage || null, raw: d };
+  return { ok: true, reply, usage: d.usage || null, raw: d, provider_used: "anthropic" };
 }
 
 // ---------- helpers (unchanged from v9) ----------
@@ -2603,11 +2664,14 @@ export default {
           routes: ["/health","/chat/smart","/chat/stream","/chat/agent","/chat/agentic","/sync/state","/admin/errors","/bridge/enqueue","/bridge/poll","/bridge/result","/chat/vision","/image/generate","/speak","/feature-request","/conversations","/history","/memory","/memory/clear","/slack/post","/telegram/send","/telegram/setup","/discord/send","/discord/interactions","/discord/register-commands","/discord/invite","/prefs","/ranking","/presence","/github/*","/vercel/*","/drive/upload","/drive/search","/drive/delete","/drive/ld-mkdir","/drive/ld-search","/drive/ld-copy","/google/oauth-start","/google/oauth-callback","/agent/propose"],
           models: Object.keys(MODELS),
           providers: {
+            groq: !!env.GROQ_API_KEY,
             anthropic: !!env.ANTHROPIC_API_KEY,
             openai: !!env.OPENAI_API_KEY,
             gemini: !!env.GEMINI_API_KEY,
             elevenlabs: !!env.ELEVENLABS_API_KEY,
           },
+          gateway: CF_GATEWAY_BASE,
+          default_model: DEFAULT_MODEL,
           slack: !!env.SLACK_BOT_TOKEN,
           telegram: !!env.TELEGRAM_BOT_TOKEN,
           discord: !!env.DISCORD_BOT_TOKEN,
