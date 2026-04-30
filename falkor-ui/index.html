@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Falkor</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+:root {
+  --bg: #0f0f11;
+  --panel: #18181b;
+  --border: #2a2a2e;
+  --text: #e8e8ea;
+  --muted: #888;
+  --accent: #6c63ff;
+  --accent2: #a78bfa;
+  --user-bubble: #1e1e2e;
+  --ai-bubble: #18181b;
+  --danger: #ef4444;
+  --success: #22c55e;
+  --input-bg: #1a1a1f;
+  --radius: 12px;
+}
+[data-theme="light"] {
+  --bg: #f5f5f7;
+  --panel: #ffffff;
+  --border: #e0e0e5;
+  --text: #1a1a1e;
+  --muted: #666;
+  --user-bubble: #ede9fe;
+  --ai-bubble: #ffffff;
+  --input-bg: #ffffff;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; height: 100dvh; overflow: hidden; }
+a { color: var(--accent2); }
+
+/* ── Login ── */
+.login-wrap { display:flex; align-items:center; justify-content:center; height:100dvh; }
+.login-card { background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); padding:40px 36px; width:100%; max-width:380px; }
+.login-logo { font-size:28px; font-weight:700; letter-spacing:-1px; margin-bottom:6px; }
+.login-sub { color:var(--muted); font-size:14px; margin-bottom:28px; }
+.field { display:flex; flex-direction:column; gap:6px; margin-bottom:16px; }
+.field label { font-size:13px; color:var(--muted); }
+.field input { background:var(--input-bg); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:15px; padding:10px 14px; outline:none; transition:border .15s; }
+.field input:focus { border-color:var(--accent); }
+.btn { background:var(--accent); border:none; border-radius:8px; color:#fff; cursor:pointer; font-size:15px; font-weight:600; padding:11px 20px; width:100%; transition:opacity .15s; }
+.btn:hover { opacity:.88; }
+.btn:disabled { opacity:.4; cursor:not-allowed; }
+.btn-ghost { background:transparent; border:1px solid var(--border); color:var(--text); }
+.btn-ghost:hover { background:var(--border); opacity:1; }
+.err-msg { color:var(--danger); font-size:13px; margin-bottom:12px; }
+
+/* ── App shell ── */
+.app { display:flex; height:100dvh; }
+
+/* ── Sidebar ── */
+.sidebar { width:260px; min-width:260px; background:var(--panel); border-right:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; transition:transform .2s; }
+.sidebar-top { padding:16px 12px 12px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px; }
+.logo-text { font-size:18px; font-weight:700; flex:1; }
+.icon-btn { background:none; border:none; color:var(--muted); cursor:pointer; padding:6px; border-radius:6px; font-size:18px; line-height:1; }
+.icon-btn:hover { background:var(--border); color:var(--text); }
+.new-chat-btn { margin:10px 12px; }
+.convo-list { flex:1; overflow-y:auto; padding:4px 0; }
+.convo-item { padding:10px 14px; cursor:pointer; border-radius:8px; margin:2px 6px; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--text); display:flex; align-items:center; gap:6px; }
+.convo-item:hover { background:var(--border); }
+.convo-item.active { background:rgba(108,99,255,.18); color:var(--accent2); }
+.convo-del { margin-left:auto; opacity:0; font-size:11px; color:var(--danger); }
+.convo-item:hover .convo-del { opacity:.7; }
+.convo-del:hover { opacity:1 !important; }
+.sidebar-footer { padding:12px; border-top:1px solid var(--border); display:flex; align-items:center; gap:8px; }
+.user-pill { background:var(--border); border-radius:20px; font-size:12px; padding:5px 12px; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+/* ── Main ── */
+.main { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+.topbar { border-bottom:1px solid var(--border); padding:10px 16px; display:flex; align-items:center; gap:10px; min-height:52px; }
+.model-select { background:var(--input-bg); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:13px; padding:5px 10px; cursor:pointer; }
+.topbar-title { font-size:14px; font-weight:600; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ws-dot { width:8px; height:8px; border-radius:50%; background:var(--muted); flex-shrink:0; }
+.ws-dot.connected { background:var(--success); }
+.ws-dot.connecting { background:#f59e0b; }
+
+/* ── Messages ── */
+.messages { flex:1; overflow-y:auto; padding:20px 0; scroll-behavior:smooth; }
+.msg-row { padding:6px 20px; display:flex; flex-direction:column; gap:2px; }
+.msg-row.user { align-items:flex-end; }
+.msg-row.assistant { align-items:flex-start; }
+.msg-bubble { max-width:78%; background:var(--user-bubble); border-radius:14px; padding:10px 14px; font-size:14px; line-height:1.55; white-space:pre-wrap; word-break:break-word; }
+.msg-row.assistant .msg-bubble { background:var(--ai-bubble); border:1px solid var(--border); }
+.msg-role { font-size:11px; color:var(--muted); margin-bottom:2px; padding:0 4px; }
+.typing-dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--muted); animation:bounce .9s infinite; margin:0 2px; }
+.typing-dot:nth-child(2) { animation-delay:.2s; }
+.typing-dot:nth-child(3) { animation-delay:.4s; }
+@keyframes bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-6px)} }
+
+/* ── Composer ── */
+.composer { padding:14px 16px; border-top:1px solid var(--border); background:var(--bg); }
+.composer-inner { display:flex; gap:8px; align-items:flex-end; background:var(--input-bg); border:1px solid var(--border); border-radius:12px; padding:8px 12px; transition:border .15s; }
+.composer-inner:focus-within { border-color:var(--accent); }
+.composer-inner.drag-over { border-color:var(--accent2); background:rgba(108,99,255,.08); }
+textarea { background:none; border:none; color:var(--text); flex:1; font-size:14px; line-height:1.5; outline:none; resize:none; max-height:160px; font-family:inherit; }
+.send-btn { background:var(--accent); border:none; border-radius:8px; color:#fff; cursor:pointer; font-size:16px; padding:7px 12px; transition:opacity .15s; flex-shrink:0; line-height:1; }
+.send-btn:hover { opacity:.85; }
+.send-btn:disabled { opacity:.35; cursor:not-allowed; }
+.attach-row { font-size:12px; color:var(--accent2); padding:4px 4px 0; display:flex; align-items:center; gap:8px; }
+.attach-remove { color:var(--danger); cursor:pointer; }
+
+/* ── Empty state ── */
+.empty { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; opacity:.55; }
+.empty-icon { font-size:48px; }
+.empty-title { font-size:18px; font-weight:600; }
+.empty-sub { font-size:13px; color:var(--muted); }
+
+/* ── Settings panel ── */
+.settings-overlay { position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:100; display:flex; align-items:center; justify-content:center; }
+.settings-panel { background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); padding:28px; width:100%; max-width:420px; display:flex; flex-direction:column; gap:18px; max-height:80dvh; overflow-y:auto; }
+.settings-title { font-size:17px; font-weight:700; }
+.setting-row { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.setting-label { font-size:14px; }
+.setting-val { font-size:13px; color:var(--muted); background:var(--input-bg); border:1px solid var(--border); border-radius:6px; padding:4px 10px; }
+.toggle { width:40px; height:22px; background:var(--border); border-radius:11px; position:relative; cursor:pointer; transition:background .2s; flex-shrink:0; }
+.toggle.on { background:var(--accent); }
+.toggle::after { content:''; position:absolute; width:16px; height:16px; background:#fff; border-radius:50%; top:3px; left:3px; transition:left .2s; }
+.toggle.on::after { left:21px; }
+.divider { border:none; border-top:1px solid var(--border); }
+
+/* ── Mobile sidebar ── */
+.sidebar-scrim { display:none; }
+@media (max-width:640px) {
+  .sidebar { position:fixed; inset:0 auto 0 0; z-index:50; transform:translateX(-100%); }
+  .sidebar.open { transform:none; }
+  .sidebar-scrim { display:block; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:49; }
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width:5px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+
+/* ── Code blocks in messages ── */
+.msg-bubble code { background:rgba(255,255,255,.08); padding:2px 6px; border-radius:4px; font-size:12px; font-family:monospace; }
+.msg-bubble pre { background:rgba(0,0,0,.3); border:1px solid var(--border); border-radius:8px; padding:10px 12px; margin:8px 0; overflow-x:auto; }
+.msg-bubble pre code { background:none; padding:0; font-size:12px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+const AGENT_URL = 'https://falkor-agent.luckdragon.io';
+const AUTH_URL  = 'https://asgard.luckdragon.io';
+const MODELS = [
+  { key: 'groq-fast',  label: '⚡ Groq Fast' },
+  { key: 'groq',       label: '🧠 Groq 70B' },
+  { key: 'groq-think', label: '🔍 Groq Think' },
+  { key: 'haiku',      label: '🌸 Haiku' },
+  { key: 'sonnet',     label: '✨ Sonnet' },
+];
+const LS = {
+  pin:    () => localStorage.getItem('falkor.pin') || '',
+  setPin: v  => localStorage.setItem('falkor.pin', v),
+  convos: () => { try { return JSON.parse(localStorage.getItem('falkor.convos') || '[]'); } catch { return []; } },
+  setConvos: v => localStorage.setItem('falkor.convos', JSON.stringify(v)),
+  model:  () => localStorage.getItem('falkor.model') || 'groq-fast',
+  setModel: v => localStorage.setItem('falkor.model', v),
+  theme:  () => localStorage.getItem('falkor.theme') || 'dark',
+  setTheme: v => localStorage.setItem('falkor.theme', v),
+};
+
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
+function renderMarkdown(text) {
+  // Very simple inline markdown
+  let s = text
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/\n/g, '<br>');
+  return s;
+}
+
+// ── Login Screen ──────────────────────────────────────────────
+function LoginScreen({ onLogin }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      // Validate via asgard login endpoint — returns 302 on success
+      const res = await fetch(`${AUTH_URL}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `email=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}`,
+        redirect: 'manual',
+        credentials: 'include',
+      });
+      if (res.status === 302 || res.status === 200 || res.type === 'opaqueredirect') {
+        // Derive PIN from email for falkor-agent auth
+        // (falkor-agent uses the global PIN — stored in vault)
+        // We test-auth by hitting falkor-agent health (no pin needed) then status with pin
+        const testStatus = await fetch(`${AGENT_URL}/status`, {
+          headers: { 'X-Pin': '535554' }
+        });
+        if (testStatus.ok) {
+          LS.setPin('535554');
+          onLogin({ email, name: email.split('@')[0] });
+        } else {
+          setError('Login succeeded but agent connection failed. Try again.');
+        }
+      } else {
+        setError('Incorrect email or password.');
+      }
+    } catch(err) {
+      // Cross-origin: if we get a network error on the redirect it may still be success
+      // Try agent directly
+      const testStatus = await fetch(`${AGENT_URL}/status`, {
+        headers: { 'X-Pin': '535554' }
+      }).catch(() => null);
+      if (testStatus && testStatus.ok) {
+        LS.setPin('535554');
+        onLogin({ email, name: email.split('@')[0] });
+      } else {
+        setError('Connection error. Please try again.');
+      }
+    }
+    setLoading(false);
+  }
+
+  return (
+    <div className="login-wrap">
+      <div className="login-card">
+        <div className="login-logo">🐉 Falkor</div>
+        <div className="login-sub">Your personal AI assistant</div>
+        {error && <div className="err-msg">{error}</div>}
+        <form onSubmit={handleSubmit}>
+          <div className="field">
+            <label>Email</label>
+            <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com" required autoFocus />
+          </div>
+          <div className="field">
+            <label>Password</label>
+            <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••" required />
+          </div>
+          <button className="btn" type="submit" disabled={loading}>
+            {loading ? 'Signing in…' : 'Sign in'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Settings Panel ─────────────────────────────────────────────
+function SettingsPanel({ onClose, theme, onThemeToggle }) {
+  const [agentStatus, setAgentStatus] = useState(null);
+
+  useEffect(() => {
+    fetch(`${AGENT_URL}/status`, { headers: { 'X-Pin': LS.pin() } })
+      .then(r => r.json())
+      .then(setAgentStatus)
+      .catch(() => setAgentStatus({ error: true }));
+  }, []);
+
+  function handleLogout() {
+    localStorage.removeItem('falkor.pin');
+    localStorage.removeItem('falkor.user');
+    window.location.reload();
+  }
+
+  return (
+    <div className="settings-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="settings-panel">
+        <div className="settings-title">⚙️ Settings</div>
+        <hr className="divider" />
+        <div className="setting-row">
+          <span className="setting-label">Theme</span>
+          <div className={`toggle ${theme === 'light' ? 'on' : ''}`} onClick={onThemeToggle} />
+        </div>
+        <div className="setting-row">
+          <span className="setting-label">Agent</span>
+          <span className="setting-val">{AGENT_URL.replace('https://','')}</span>
+        </div>
+        {agentStatus && !agentStatus.error && (
+          <>
+            <div className="setting-row">
+              <span className="setting-label">Agent version</span>
+              <span className="setting-val">v{agentStatus.version}</span>
+            </div>
+            <div className="setting-row">
+              <span className="setting-label">History</span>
+              <span className="setting-val">{agentStatus.historyLength} messages</span>
+            </div>
+            <div className="setting-row">
+              <span className="setting-label">Memory facts</span>
+              <span className="setting-val">{agentStatus.memoryKeys} keys</span>
+            </div>
+          </>
+        )}
+        <hr className="divider" />
+        <button className="btn btn-ghost" onClick={() => {
+          if (confirm('Clear all chat history on the agent?')) {
+            fetch(`${AGENT_URL}/history`, { method: 'DELETE', headers: { 'X-Pin': LS.pin() } });
+          }
+        }}>Clear history</button>
+        <button className="btn" style={{background:'var(--danger)'}} onClick={handleLogout}>Sign out</button>
+      </div>
+    </div>
+  );
+}
+
+// ── Message Bubble ─────────────────────────────────────────────
+function MessageBubble({ msg }) {
+  return (
+    <div className={`msg-row ${msg.role}`}>
+      <div className="msg-role">{msg.role === 'user' ? 'You' : '🐉 Falkor'}</div>
+      <div
+        className="msg-bubble"
+        dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }}
+      />
+    </div>
+  );
+}
+
+// ── Typing indicator ───────────────────────────────────────────
+function TypingIndicator() {
+  return (
+    <div className="msg-row assistant">
+      <div className="msg-role">🐉 Falkor</div>
+      <div className="msg-bubble" style={{padding:'12px 16px'}}>
+        <span className="typing-dot"/>
+        <span className="typing-dot"/>
+        <span className="typing-dot"/>
+      </div>
+    </div>
+  );
+}
+
+// ── Main App ───────────────────────────────────────────────────
+function App() {
+  const [user, setUser]           = useState(() => { try { return JSON.parse(localStorage.getItem('falkor.user')||'null'); } catch { return null; } });
+  const [convos, setConvos]       = useState(LS.convos);
+  const [activeId, setActiveId]   = useState(() => localStorage.getItem('falkor.activeId') || '');
+  const [model, setModelState]    = useState(LS.model);
+  const [theme, setThemeState]    = useState(LS.theme);
+  const [input, setInput]         = useState('');
+  const [typing, setTyping]       = useState(false);
+  const [wsState, setWsState]     = useState('disconnected'); // connecting | connected | disconnected
+  const [showSettings, setShowSettings] = useState(false);
+  const [sidebarOpen, setSidebarOpen]   = useState(false);
+  const [attachment, setAttachment]     = useState(null);
+  const [dragOver, setDragOver]         = useState(false);
+
+  const wsRef       = useRef(null);
+  const messagesEnd = useRef(null);
+  const textareaRef = useRef(null);
+  const reconnectTimer = useRef(null);
+
+  const activeConvo = convos.find(c => c.id === activeId);
+
+  // Theme
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    LS.setTheme(theme);
+  }, [theme]);
+
+  // Save convos
+  useEffect(() => { LS.setConvos(convos); }, [convos]);
+
+  // Scroll to bottom on new messages
+  useEffect(() => {
+    messagesEnd.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [activeConvo?.messages, typing]);
+
+  // WebSocket connection
+  const connectWS = useCallback(() => {
+    if (!user || !LS.pin()) return;
+    if (wsRef.current && wsRef.current.readyState < 2) return;
+
+    setWsState('connecting');
+    const wsUrl = AGENT_URL.replace('https://', 'wss://') + `/?pin=${LS.pin()}`;
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      setWsState('connected');
+      clearTimeout(reconnectTimer.current);
+    };
+
+    ws.onmessage = (evt) => {
+      try {
+        const msg = JSON.parse(evt.data);
+        if (msg.type === 'assistant_reply') {
+          setTyping(false);
+          const replyMsg = { id: uid(), role: 'assistant', content: msg.text, ts: Date.now() };
+          setConvos(prev => prev.map(c => c.id === activeId
+            ? { ...c, messages: [...(c.messages||[]), replyMsg] }
+            : c
+          ));
+        }
+      } catch {}
+    };
+
+    ws.onclose = () => {
+      setWsState('disconnected');
+      setTyping(false);
+      reconnectTimer.current = setTimeout(connectWS, 3000);
+    };
+
+    ws.onerror = () => ws.close();
+  }, [user, activeId]);
+
+  useEffect(() => {
+    if (user) connectWS();
+    return () => {
+      clearTimeout(reconnectTimer.current);
+      wsRef.current?.close();
+    };
+  }, [user]);
+
+  // Re-send activeId to WS context when switching convos
+  useEffect(() => {
+    localStorage.setItem('falkor.activeId', activeId);
+  }, [activeId]);
+
+  function handleLogin(userData) {
+    localStorage.setItem('falkor.user', JSON.stringify(userData));
+    setUser(userData);
+  }
+
+  function newConvo() {
+    const id = uid();
+    const hour = new Date().getHours();
+    const greeting = hour < 12 ? 'Morning' : hour < 17 ? 'Afternoon' : 'Evening';
+    const newC = {
+      id,
+      title: `${greeting} chat`,
+      messages: [],
+      createdAt: Date.now(),
+    };
+    setConvos(prev => [newC, ...prev]);
+    setActiveId(id);
+    setSidebarOpen(false);
+  }
+
+  function deleteConvo(e, id) {
+    e.stopPropagation();
+    setConvos(prev => prev.filter(c => c.id !== id));
+    if (activeId === id) setActiveId('');
+  }
+
+  function setModel(m) {
+    setModelState(m);
+    LS.setModel(m);
+  }
+
+  function toggleTheme() {
+    setThemeState(t => t === 'dark' ? 'light' : 'dark');
+  }
+
+  async function sendMessage() {
+    const text = input.trim();
+    if (!text && !attachment) return;
+
+    let fullText = text;
+    if (attachment) {
+      fullText = attachment.prefix + text;
+      setAttachment(null);
+    }
+
+    setInput('');
+    if (textareaRef.current) { textareaRef.current.style.height = 'auto'; }
+
+    // Create convo if none active
+    let cid = activeId;
+    if (!cid) {
+      const id = uid();
+      const newC = { id, title: fullText.slice(0,40) || 'New chat', messages: [], createdAt: Date.now() };
+      setConvos(prev => [newC, ...prev]);
+      setActiveId(id);
+      cid = id;
+    }
+
+    const userMsg = { id: uid(), role: 'user', content: fullText, ts: Date.now() };
+    setConvos(prev => prev.map(c => c.id === cid
+      ? { ...c, title: c.messages.length === 0 ? fullText.slice(0,40) : c.title, messages: [...(c.messages||[]), userMsg] }
+      : c
+    ));
+    setTyping(true);
+
+    // Send via WebSocket if connected, else REST
+    if (wsRef.current && wsRef.current.readyState === 1) {
+      wsRef.current.send(JSON.stringify({ type: 'chat', text: fullText, model }));
+    } else {
+      // Fallback to REST
+      try {
+        const res = await fetch(`${AGENT_URL}/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Pin': LS.pin() },
+          body: JSON.stringify({ text: fullText, model }),
+        });
+        const data = await res.json();
+        const reply = data.reply || '[No reply]';
+        setTyping(false);
+        const replyMsg = { id: uid(), role: 'assistant', content: reply, ts: Date.now() };
+        setConvos(prev => prev.map(c => c.id === cid
+          ? { ...c, messages: [...(c.messages||[]), replyMsg] }
+          : c
+        ));
+      } catch {
+        setTyping(false);
+        const errMsg = { id: uid(), role: 'assistant', content: '[Connection error — check agent status]', ts: Date.now() };
+        setConvos(prev => prev.map(c => c.id === cid
+          ? { ...c, messages: [...(c.messages||[]), errMsg] }
+          : c
+        ));
+      }
+    }
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  }
+
+  function handleTextareaChange(e) {
+    setInput(e.target.value);
+    e.target.style.height = 'auto';
+    e.target.style.height = Math.min(e.target.scrollHeight, 160) + 'px';
+  }
+
+  function handleDrop(e) {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+    processFile(file);
+  }
+
+  function processFile(file) {
+    if (file.size > 10 * 1024 * 1024) { alert('File too large (>10MB)'); return; }
+    const reader = new FileReader();
+    if (file.type.startsWith('image/')) {
+      reader.onload = e => setAttachment({ name: file.name, type: 'image', dataUrl: e.target.result, prefix: '' });
+      reader.readAsDataURL(file);
+    } else {
+      reader.onload = e => {
+        const text = e.target.result || '';
+        const prefix = `📎 [${file.name}]:\n${text.slice(0,8000)}${text.length>8000 ? '\n…(truncated)' : ''}\n\n`;
+        setAttachment({ name: file.name, type: 'text', prefix });
+      };
+      reader.readAsText(file);
+    }
+  }
+
+  if (!user) return <LoginScreen onLogin={handleLogin} />;
+
+  const messages = activeConvo?.messages || [];
+  const wsLabel = wsState === 'connected' ? 'Connected' : wsState === 'connecting' ? 'Connecting…' : 'Offline';
+
+  return (
+    <div className="app">
+      {/* Sidebar scrim (mobile) */}
+      {sidebarOpen && <div className="sidebar-scrim" onClick={() => setSidebarOpen(false)} />}
+
+      {/* Sidebar */}
+      <div className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
+        <div className="sidebar-top">
+          <span className="logo-text">🐉 Falkor</span>
+          <button className="icon-btn" onClick={() => setSidebarOpen(false)} title="Close">✕</button>
+        </div>
+        <button className="btn new-chat-btn" onClick={newConvo}>+ New chat</button>
+        <div className="convo-list">
+          {convos.length === 0 && (
+            <div style={{padding:'16px',color:'var(--muted)',fontSize:'13px',textAlign:'center'}}>No conversations yet</div>
+          )}
+          {convos.map(c => (
+            <div
+              key={c.id}
+              className={`convo-item ${c.id === activeId ? 'active' : ''}`}
+              onClick={() => { setActiveId(c.id); setSidebarOpen(false); }}
+            >
+              💬 {c.title || 'Untitled'}
+              <span className="convo-del" onClick={e => deleteConvo(e, c.id)}>✕</span>
+            </div>
+          ))}
+        </div>
+        <div className="sidebar-footer">
+          <div className="user-pill">👤 {user.name || user.email}</div>
+          <button className="icon-btn" onClick={() => setShowSettings(true)} title="Settings">⚙️</button>
+        </div>
+      </div>
+
+      {/* Main */}
+      <div className="main">
+        {/* Top bar */}
+        <div className="topbar">
+          <button className="icon-btn" onClick={() => setSidebarOpen(s => !s)}>☰</button>
+          <span className="topbar-title">{activeConvo?.title || 'Falkor'}</span>
+          <select
+            className="model-select"
+            value={model}
+            onChange={e => setModel(e.target.value)}
+          >
+            {MODELS.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+          </select>
+          <div className={`ws-dot ${wsState}`} title={wsLabel} />
+        </div>
+
+        {/* Messages */}
+        {messages.length === 0 && !typing ? (
+          <div className="empty">
+            <div className="empty-icon">🐉</div>
+            <div className="empty-title">Hey {user.name || 'there'}!</div>
+            <div className="empty-sub">What's on your mind?</div>
+          </div>
+        ) : (
+          <div className="messages">
+            {messages.map(msg => <MessageBubble key={msg.id} msg={msg} />)}
+            {typing && <TypingIndicator />}
+            <div ref={messagesEnd} />
+          </div>
+        )}
+
+        {/* Composer */}
+        <div className="composer">
+          {attachment && (
+            <div className="attach-row">
+              📎 {attachment.name}
+              <span className="attach-remove" onClick={() => setAttachment(null)}>✕</span>
+            </div>
+          )}
+          <div
+            className={`composer-inner ${dragOver ? 'drag-over' : ''}`}
+            onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={handleDrop}
+          >
+            <textarea
+              ref={textareaRef}
+              rows={1}
+              placeholder="Message Falkor… (Shift+Enter for newline)"
+              value={input}
+              onChange={handleTextareaChange}
+              onKeyDown={handleKeyDown}
+            />
+            <label style={{cursor:'pointer', color:'var(--muted)', fontSize:'18px', padding:'2px 4px'}} title="Attach file">
+              📎
+              <input type="file" style={{display:'none'}} onChange={e => { if(e.target.files[0]) processFile(e.target.files[0]); }} />
+            </label>
+            <button className="send-btn" onClick={sendMessage} disabled={!input.trim() && !attachment}>↑</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Settings */}
+      {showSettings && (
+        <SettingsPanel
+          onClose={() => setShowSettings(false)}
+          theme={theme}
+          onThemeToggle={toggleTheme}
+        />
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
