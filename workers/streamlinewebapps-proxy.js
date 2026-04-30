@@ -1,4 +1,4 @@
-// streamlinewebapps-proxy v25 — native /submit (Stripe+DB), /analytics direct to Supabase REST
+// streamlinewebapps-proxy v26 — fix: await DB writes (waitUntil not needed; fire-and-forget was dropping)
 const SUPABASE = "https://huvfgenbcaiicatvtxak.supabase.co/functions/v1/streamline";
 const SUPA_REST = "https://huvfgenbcaiicatvtxak.supabase.co/rest/v1";
 const SUPA_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh1dmZnZW5iY2FpaWNhdHZ0eGFrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2MTczNjIsImV4cCI6MjA5MTE5MzM2Mn0.uTgzTKYjJnkFlRUIhGfW4ODKyV24xOdKaX7lxpDuMfc";
@@ -67,8 +67,9 @@ async function handleSubmit(request, env) {
 
     // 3. Update submission with stripe session ID
     if (subId && data.id) {
-      fetch(SUPA_REST+`/streamline_submissions?id=eq.${subId}`, {
-        method:"PATCH", headers:SUPA_H,
+      await fetch(SUPA_REST+`/streamline_submissions?id=eq.${subId}`, {
+        method:"PATCH",
+        headers:{"apikey":SUPA_ANON,"Authorization":"Bearer "+SUPA_ANON,"Content-Type":"application/json"},
         body: JSON.stringify({stripe_session_id: data.id, status:"awaiting_payment"})
       }).catch(()=>{});
     }
@@ -86,10 +87,13 @@ async function handleAnalytics(request) {
     if (!event) return new Response(JSON.stringify({ok:false}), {headers:{...CORS,"Content-Type":"application/json"}});
     const ip = request.headers.get("CF-Connecting-IP") || null;
     const ua = request.headers.get("User-Agent") || null;
-    fetch(SUPA_REST+"/streamline_analytics", {
-      method:"POST", headers:SUPA_H,
+    const h = {...SUPA_H, "Prefer":"return=minimal"};
+    delete h["Prefer"]; // avoid Prefer header on inserts from anon
+    await fetch(SUPA_REST+"/streamline_analytics", {
+      method:"POST",
+      headers:{"apikey":SUPA_ANON,"Authorization":"Bearer "+SUPA_ANON,"Content-Type":"application/json"},
       body: JSON.stringify({event, data: data||{page:page||"/"}, ip_address:ip, user_agent:ua})
-    }).catch(()=>{});
+    });
     return new Response(JSON.stringify({ok:true}), {headers:{...CORS,"Content-Type":"application/json"}});
   } catch(e) {
     return new Response(JSON.stringify({ok:false}), {headers:{...CORS,"Content-Type":"application/json"}});
@@ -562,7 +566,7 @@ export default {
     // Serve the HTML shell for everything else
     return new Response(HTML, {
       status: 200,
-      headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, s-maxage=300, stale-while-revalidate=60", "X-Streamline-Version": "25" }
+      headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "public, s-maxage=300, stale-while-revalidate=60", "X-Streamline-Version": "26" }
     });
   }
 };
