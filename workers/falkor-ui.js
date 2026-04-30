@@ -67,6 +67,14 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .composer-inner:focus-within{border-color:var(--accent)}
 .composer-inner.drag-over{border-color:var(--accent2);background:rgba(108,99,255,.08)}
 textarea{background:none;border:none;color:var(--text);flex:1;font-size:14px;line-height:1.5;outline:none;resize:none;max-height:160px;font-family:inherit}
+.mic-btn{background:none;border:1px solid var(--border);border-radius:8px;width:32px;height:32px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--text);transition:all .2s;}
+.mic-btn:hover{background:var(--border);}
+.mic-btn.recording{background:#e74c3c22;border-color:#e74c3c;animation:pulse 1s infinite;}
+.mic-btn.wake{background:#3498db22;border-color:#3498db;}
+.speak-btn{background:none;border:1px solid var(--border);border-radius:8px;width:32px;height:32px;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--muted);transition:all .2s;}
+.speak-btn:hover{background:var(--border);}
+.speak-btn.on{color:var(--accent);border-color:var(--accent);}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
 .send-btn{background:var(--accent);border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:16px;padding:7px 12px;transition:opacity .15s;flex-shrink:0;line-height:1}
 .send-btn:hover{opacity:.85}.send-btn:disabled{opacity:.35;cursor:not-allowed}
 .attach-row{font-size:12px;color:var(--accent2);padding:4px 4px 0;display:flex;align-items:center;gap:8px}
@@ -98,6 +106,7 @@ textarea{background:none;border:none;color:var(--text);flex:1;font-size:14px;lin
 const { useState, useEffect, useRef, useCallback } = React;
 
 const AGENT_URL = 'https://falkor-agent.luckdragon.io';
+const AI_URL    = 'https://asgard-ai.luckdragon.io';
 const SPORT_URL = 'https://falkor-sport.luckdragon.io';
 const AUTH_URL  = 'https://asgard.luckdragon.io';
 const MODELS = [
@@ -399,6 +408,13 @@ function App(){
   const [sidebarOpen,setSidebarOpen]=useState(false);
   const [attachment,setAttachment]=useState(null);
   const [dragOver,setDragOver]=useState(false);
+  const [isRecording,setIsRecording]=useState(false);
+  const [autoSpeak,setAutoSpeak]=useState(()=>localStorage.getItem('falkor.autoSpeak')==='true');
+  const [wakeActive,setWakeActive]=useState(false);
+  const recorderRef=useRef(null);
+  const chunksRef=useRef([]);
+  const wakeRef=useRef(null);
+  const audioRef=useRef(null);
   const wsRef=useRef(null);
   const endRef=useRef(null);
   const taRef=useRef(null);
@@ -423,6 +439,7 @@ function App(){
           setTyping(false);
           const m={id:uid(),role:'assistant',content:msg.text,ts:Date.now()};
           setConvos(prev=>prev.map(c=>c.id===activeId?{...c,messages:[...(c.messages||[]),m]}:c));
+          speakText(msg.text);
         }
       }catch{}
     };
@@ -431,6 +448,93 @@ function App(){
   },[user,activeId]);
 
   useEffect(()=>{if(user)connectWS();return()=>{clearTimeout(reconnTimer.current);wsRef.current?.close();};},[user]);
+
+  // ── TTS: speak assistant reply ──────────────────────────────────────────
+  async function speakText(text) {
+    if (!text || !autoSpeak) return;
+    try {
+      const res = await fetch(`${AI_URL}/speak`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json','X-Pin':LS.pin()},
+        body: JSON.stringify({ text: text.slice(0,500), provider:'openai', voice:'onyx' }),
+      });
+      if (!res.ok) return;
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      if (audioRef.current) { audioRef.current.pause(); URL.revokeObjectURL(audioRef.current.src); }
+      const a = new Audio(url);
+      audioRef.current = a;
+      a.play().catch(()=>{});
+    } catch(e) { console.error('TTS error', e); }
+  }
+
+  // ── STT: record + transcribe ───────────────────────────────────────────
+  async function startRecording() {
+    if (!navigator.mediaDevices?.getUserMedia) { alert('Microphone not supported'); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      chunksRef.current = [];
+      const mr = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm' });
+      recorderRef.current = mr;
+      mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      mr.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        setIsRecording(false);
+        const blob = new Blob(chunksRef.current, { type: mr.mimeType });
+        if (blob.size < 1000) return; // too short
+        const fd = new FormData();
+        fd.append('audio', blob, 'audio.webm');
+        try {
+          const res = await fetch(`${AI_URL}/stt`, { method:'POST', headers:{'X-Pin':LS.pin()}, body:fd });
+          const d = await res.json();
+          if (d.text) {
+            setInput(prev => prev ? prev + ' ' + d.text : d.text);
+            if (taRef.current) { taRef.current.style.height='auto'; taRef.current.style.height=Math.min(taRef.current.scrollHeight,160)+'px'; taRef.current.focus(); }
+          }
+        } catch(e) { console.error('STT error', e); }
+      };
+      mr.start(200);
+      setIsRecording(true);
+      // Auto-stop after 30s
+      setTimeout(()=>{ if(recorderRef.current?.state==='recording') recorderRef.current.stop(); }, 30000);
+    } catch(e) { console.error('Mic error', e); alert('Could not access microphone'); }
+  }
+
+  function stopRecording() {
+    if (recorderRef.current?.state === 'recording') recorderRef.current.stop();
+  }
+
+  function toggleRecording() {
+    if (isRecording) stopRecording(); else startRecording();
+  }
+
+  function toggleAutoSpeak() {
+    setAutoSpeak(s => { localStorage.setItem('falkor.autoSpeak', !s); return !s; });
+  }
+
+  // ── Wake word: "Hey Falkor" via browser SpeechRecognition ──────────────
+  useEffect(() => {
+    if (!user) return;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return;
+    const sr = new SR();
+    sr.continuous = true;
+    sr.interimResults = false;
+    sr.lang = 'en-AU';
+    wakeRef.current = sr;
+    sr.onresult = (e) => {
+      const t = e.results[e.results.length-1][0].transcript.toLowerCase();
+      if (t.includes('hey falkor') || t.includes('hey falcon')) {
+        setWakeActive(true);
+        startRecording();
+        setTimeout(() => setWakeActive(false), 500);
+      }
+    };
+    sr.onerror = () => {};
+    sr.onend = () => { try { sr.start(); } catch{} };
+    try { sr.start(); } catch {}
+    return () => { try { sr.stop(); } catch {} };
+  }, [user]);
   useEffect(()=>{localStorage.setItem('falkor.activeId',activeId);},[activeId]);
 
   function handleLogin(u){localStorage.setItem('falkor.user',JSON.stringify(u));setUser(u);}
@@ -562,6 +666,14 @@ function App(){
               <label style={{cursor:'pointer',color:'var(--muted)',fontSize:'18px',padding:'2px 4px'}} title="Attach file">
                 📎<input type="file" style={{display:'none'}} onChange={e=>{if(e.target.files[0])processFile(e.target.files[0]);}}/>
               </label>
+              <button
+                className={`mic-btn${isRecording?' recording':wakeActive?' wake':''}`}
+                onClick={toggleRecording}
+                title={isRecording?'Stop recording':'Start voice input (or say "Hey Falkor")'}
+              >{isRecording?'⏹':'🎙'}</button>
+              <button className={`speak-btn${autoSpeak?' on':''}`} onClick={toggleAutoSpeak} title={autoSpeak?'Auto-speak ON':'Auto-speak OFF'}>
+                {autoSpeak?'🔊':'🔇'}
+              </button>
               <button className="send-btn" onClick={sendMsg} disabled={!input.trim()&&!attachment}>↑</button>
             </div>
           </div>
