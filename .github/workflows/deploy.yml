@@ -39,13 +39,7 @@ jobs:
             echo "Deploying $w..."
             MAIN="worker.js"
             [ "$w" = "asgard" ] && MAIN="asgard.js"
-            python3 -c "
-import json, base64
-with open('workers/$w.js', 'rb') as f:
-    b64 = base64.b64encode(f.read()).decode('ascii')
-payload = {'worker_name': '$w', 'code_b64': b64, 'main_module': '$MAIN'}
-print(json.dumps(payload))
-" > /tmp/deploy_payload.json
+            python3 -c "import json,base64; b64=base64.b64encode(open('workers/$w.js','rb').read()).decode('ascii'); print(json.dumps({'worker_name':'$w','code_b64':b64,'main_module':'$MAIN'}))" > /tmp/deploy_payload.json
             curl -s -X POST "https://asgard-tools.pgallivan.workers.dev/admin/deploy" \
               -H "Content-Type: application/json" \
               -H "X-Pin: $ASGARD_PIN" \
