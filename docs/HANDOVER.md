@@ -266,7 +266,7 @@ curl -s -H "X-Pin: $PIN" https://asgard-ai.pgallivan.workers.dev/admin/errors?li
 # Expected: {"ok":true,"count":N,"errors":[...]}
 
 # Auth verification — old PIN should fail
-curl -s -H "X-Pin: 2967" https://asgard-tools.pgallivan.workers.dev/admin/projects
+curl -s -H "X-Pin: $PIN" https://asgard-tools.pgallivan.workers.dev/admin/projects
 # Expected: {"error":"Forbidden"}
 ```
 
@@ -344,4 +344,4 @@ End of handover. **PIN is `<ASK MONA — PIN provided out-of-band, not stored in
 - Updated HANDOVER.md: all `PaddyGallivan/asgard-source` references → `LuckDragonAsgard/asgard-source` ✅
 - Added Sport Portal and Carnival Timing to active products table ✅
 - All 5 sport portal URLs verified live ✅
-- PIN in use: 2967 (via vault)
+- PIN in use: <PADDY_PIN — retrieve from vault out-of-band>
