@@ -20,12 +20,12 @@ const SYSTEM_PROMPT = `You are Asgard, Luck Dragon's infrastructure AI. You have
 
 | What | How |
 |------|-----|
-| Run SQL (write) | POST https://asgard-brain.pgallivan.workers.dev/d1/write — header X-Pin: {pin}, body {sql, params} |
-| Run SQL (read) | POST https://asgard-brain.pgallivan.workers.dev/d1/query — header X-Pin: {pin}, body {sql, params} |
+| Run SQL (write) | POST https://asgard-brain.luckdragon.io/d1/write — header X-Pin: {pin}, body {sql, params} |
+| Run SQL (read) | POST https://asgard-brain.luckdragon.io/d1/query — header X-Pin: {pin}, body {sql, params} |
 | Push to GitHub (auto-deploys CF Pages) | PUT https://api.github.com/repos/{owner}/{repo}/contents/{path} — Authorization: Bearer {GITHUB_TOKEN env} — body JSON {message, content (base64), branch:"main", sha:"<current sha if UPDATING existing file>"}. To UPDATE: first GET /contents/{path}?ref=main for current sha, then PUT with sha. To CREATE: omit sha. Returns 201 (created) or 200 (updated). |
-| (deprecated) gh-push worker | https://gh-push.pgallivan.workers.dev returns CF 1042 — DO NOT use. |
-| Build/deploy via Craftsman | POST https://craftsman.pgallivan.workers.dev/api/build — body {worker_name, task, context} |
-| Vault read | GET https://asgard-vault.pgallivan.workers.dev/secret/{KEY} — header X-Pin: {pin} |
+| (deprecated) gh-push worker | https://gh-push.luckdragon.io returns CF 1042 — DO NOT use. |
+| Build/deploy via Craftsman | POST https://craftsman.luckdragon.io/api/build — body {worker_name, task, context} |
+| Vault read | GET https://asgard-vault.luckdragon.io/secret/{KEY} — header X-Pin: {pin} |
 | CF API | https://api.cloudflare.com/client/v4/accounts/${ACCOUNT_ID}/... — header Authorization: Bearer {CF_API_TOKEN} |
 
 ## Key facts
@@ -115,7 +115,7 @@ async function getPin(env) {
 }
 
 async function getFromVault(key, pin) {
-  const r = await fetch(`https://asgard-vault.pgallivan.workers.dev/secret/${key}`, {
+  const r = await fetch(`https://asgard-vault.luckdragon.io/secret/${key}`, {
     headers: { 'X-Pin': pin }
   });
   if (!r.ok) throw new Error(`Vault ${r.status} for ${key}`);
@@ -264,7 +264,7 @@ async function executeTool(toolName, toolInput, env) {
         // Prefer direct env binding (works from CF worker context, fast)
         if (env && env[key]) return { value: env[key], source: 'env' };
         // Fall back to vault (note: vault may 404 for some keys when called from CF worker context)
-        const r = await fetch(`https://asgard-vault.pgallivan.workers.dev/secret/${key}`, {
+        const r = await fetch(`https://asgard-vault.luckdragon.io/secret/${key}`, {
           headers: { 'X-Pin': pin }
         });
         if (!r.ok) return { error: `Vault ${r.status} for ${key}; not in env either` };
@@ -306,7 +306,7 @@ async function handleChatSmart(request, env, corsHeaders) {
     const aiBody = { message, messages, model };
     if (system) aiBody.system = system;
     try {
-      const aiRes = await fetch('https://asgard-ai.pgallivan.workers.dev/chat/smart', {
+      const aiRes = await fetch('https://asgard-ai.luckdragon.io/chat/smart', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
         body: JSON.stringify(aiBody)
@@ -409,14 +409,14 @@ async function handleChatSmart(request, env, corsHeaders) {
 export default {
   async fetch(request, env) {
     const allowedOrigins = [
-      'https://asgard.pgallivan.workers.dev',
-      'https://asgard-ai.pgallivan.workers.dev',
-      'https://asgard-tools.pgallivan.workers.dev',
-      'https://asgard-brain.pgallivan.workers.dev'
+      'https://asgard.luckdragon.io',
+      'https://asgard-ai.luckdragon.io',
+      'https://asgard-tools.luckdragon.io',
+      'https://asgard-brain.luckdragon.io'
     ];
     const reqOrigin = request.headers.get('Origin') || '';
     const cors = {
-      'Access-Control-Allow-Origin': allowedOrigins.includes(reqOrigin) ? reqOrigin : 'https://asgard.pgallivan.workers.dev',
+      'Access-Control-Allow-Origin': allowedOrigins.includes(reqOrigin) ? reqOrigin : 'https://asgard.luckdragon.io',
       'Access-Control-Allow-Headers': 'Content-Type, X-Pin, Authorization',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
       'Vary': 'Origin'
