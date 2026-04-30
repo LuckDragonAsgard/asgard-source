@@ -3850,11 +3850,11 @@ export default {
         const remaining = Math.max(0, 5 - attEntry.count);
         const errMsg = email ? 'Incorrect email or password.' + (remaining < 3 ? ' ' + remaining + ' attempts left.' : '') : '';
         return new Response(loginPage('<p class=err>' + errMsg + '</p>', email), {
-          status: 401, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }
+          status: 401, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'self';" }
         });
       }
       return new Response(loginPage(), {
-        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }
+        headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'self';" }
       });
     }
     if (path === '/privacy' || path === '/privacy/') {
