@@ -2,6 +2,41 @@
 // Built on top of v6.5.0 (Claude-style chat layout). PROJECTS list and chat behavior unchanged.
 
 const VERSION = '8.8.0';
+function loginPage(extraHtml, prefillEmail) {
+  return '<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Asgard</title><style>*{box-sizing:border-box;margin:0;padding:0}body{background:linear-gradient(135deg,#0d0d1f 0%,#1a1a35 100%);display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:-apple-system,system-ui,sans-serif}.card{background:rgba(30,30,53,.95);backdrop-filter:blur(20px);padding:2.5rem 2rem;border-radius:20px;width:340px;text-align:center;border:1px solid rgba(217,119,87,.2);box-shadow:0 25px 60px rgba(0,0,0,.5)}.logo{font-size:3rem;margin-bottom:.5rem;filter:drop-shadow(0 0 20px rgba(217,119,87,.4))}h1{color:#fff;font-size:1.4rem;font-weight:700;margin:.25rem 0 .25rem}.sub{color:#6b6b8a;font-size:.8rem;margin:0 0 1.5rem;letter-spacing:.5px;text-transform:uppercase}.field{position:relative;margin-bottom:1rem}.field label{display:block;text-align:left;font-size:.75rem;color:#8888aa;margin-bottom:.4rem;font-weight:500}input{width:100%;padding:.8rem 1rem;border-radius:10px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.05);color:#fff;font-size:.95rem;font-family:inherit;outline:none;transition:border .2s}input:focus{border-color:rgba(217,119,87,.6)}button{width:100%;padding:.85rem;background:linear-gradient(135deg,#d97757,#c4603d);color:#fff;border:none;border-radius:10px;font-size:1rem;font-weight:600;cursor:pointer;font-family:inherit;transition:opacity .2s;margin-top:.5rem}button:hover{opacity:.9}.err{color:#ef4444;font-size:.82rem;margin:.5rem 0;text-align:left}.locked{color:#f59e0b;font-size:.82rem;margin:.5rem 0}</style></head><body><div class="card"><div class="logo">&#x1F409;</div><h1>Asgard</h1><p class="sub">Luck Dragon Command</p>' + (extraHtml||'') + '<form method=POST action=/login><div class="field"><label>Email address</label><input name=email type=email placeholder="you@example.com" autocomplete=email value="' + (prefillEmail||'') + '" autofocus></div><div class="field"><label>Password</label><input name=password type=password placeholder="Password" autocomplete=current-password></div><button type=submit>Sign in</button></form></div></body></html>';
+}
+
+// ── Auth: email + password ─────────────────────────────────
+const ASGARD_USERS = [
+  { email: 'pgallivan@outlook.com',     name: 'Paddy',  userId: 'paddy',  hash: '1e3fe6e887aca36d732938f227d2a65ef6b2de08f1f30cdf08d1bcace2eb3ac3', salt: '9177c520fef818045de3df66c394557e' },
+  { email: 'rooney.jaclyn.l@gmail.com', name: 'Jaclyn', userId: 'jacky',  hash: 'f7bb21af02d56a45c81140988a81b90dfdc4d448bfa72d580b63ed0f10d0c365', salt: '98b7d133844d099212b2a8e2a5764c70' },
+  { email: 'bpggarth@gmail.com',        name: 'Garth',  userId: 'george', hash: 'cffe366a931af3feeb6951b73f614337a4676a4a794868627ceea9644d81e884', salt: 'c223a336b67a9e050bcd959a8f6e97a4' },
+];
+const loginAttempts = new Map(); // IP -> {count, since}
+
+async function verifyPassword(password, salt, storedHash) {
+  const enc = new TextEncoder();
+  const keyMat = await crypto.subtle.importKey('raw', enc.encode(password), {name:'PBKDF2'}, false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({name:'PBKDF2', salt: enc.encode(salt), iterations:100000, hash:'SHA-256'}, keyMat, 256);
+  const hex = Array.from(new Uint8Array(bits)).map(b=>b.toString(16).padStart(2,'0')).join('');
+  return hex === storedHash;
+}
+
+function checkRateLimit(ip) {
+  const now = Date.now();
+  const entry = loginAttempts.get(ip) || {count:0, since:now};
+  if (now - entry.since > 600000) { loginAttempts.delete(ip); return false; } // reset after 10min
+  return entry.count >= 5;
+}
+
+function recordFailure(ip) {
+  const now = Date.now();
+  const entry = loginAttempts.get(ip) || {count:0, since:now};
+  if (now - entry.since > 600000) { loginAttempts.set(ip, {count:1, since:now}); }
+  else { loginAttempts.set(ip, {count: entry.count+1, since: entry.since}); }
+}
+
+
 // Auto-login from URL: asgard.luckdragon.io?pin=XXXXX
 (function(){
   try {
@@ -887,6 +922,7 @@ const HTML = `<!doctype html>
     <div class="composer" id="composerWrap">
       <div class="composer-inner">
         <form class="composer-box" id="form">
+          <button type="button" id="mic" title="Voice input" aria-label="Voice input" style="background:transparent;border:none;cursor:pointer;padding:6px 8px;font-size:1.2rem;color:var(--muted);flex-shrink:0;border-radius:8px;transition:color .2s" onmouseenter="this.style.color='var(--accent)'" onmouseleave="this.style.color='var(--muted)'">&#x1F3A4;</button>
           <textarea id="input" placeholder="Message Asgard…" rows="1"></textarea>
           <button type="submit" id="send" aria-label="Send message">Send</button>
         </form>
@@ -897,7 +933,7 @@ const HTML = `<!doctype html>
 </div>
 
 <script>
-(function(){try{var c=(document.cookie+';').split(';').map(function(s){return s.trim();}).find(function(s){return s.startsWith('asgard_pin=');});if(c){localStorage.setItem('asgard.pin.v1',decodeURIComponent(c.split('=').slice(1).join('=')));}}catch(e){}})();
+(function(){try{var cookies=(document.cookie+';').split(';').map(function(s){return s.trim();});var pc=cookies.find(function(s){return s.startsWith('asgard_pin=');});if(pc){localStorage.setItem('asgard.pin.v1',decodeURIComponent(pc.split('=').slice(1).join('=')));}var uc=cookies.find(function(s){return s.startsWith('asgard_user=');});if(uc){localStorage.setItem('asgard.user.v1',uc.split('=')[1]);}}catch(e){}})();
 let PROJECTS = [];
 const BRAIN_URL = 'https://asgard-brain.luckdragon.io';
 async function loadProductsFromBrain() {
@@ -1010,6 +1046,9 @@ function updateUserPill() {
   }
 }
 function getPinUser() {
+  var u = localStorage.getItem('asgard.user.v1');
+  if (u === 'paddy' || u === 'jacky' || u === 'george') return u;
+  // Legacy fallback: identify by pin prefix
   var p = loadPin();
   if (!p) return 'user';
   var prefix = p.slice(0,4);
@@ -2512,6 +2551,51 @@ function buildSystemPrompt(conv) {
 }
 
 function sendMessage(text) { currentView = 'chat'; saveView('chat'); render(); send(text); }
+// ── Voice input ────────────────────────────────────────────
+(function() {
+  var micBtn = document.getElementById('mic');
+  if (!micBtn) return;
+  var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) { micBtn.title = 'Voice not supported in this browser'; micBtn.style.opacity = '0.3'; return; }
+  var recog = new SpeechRecognition();
+  recog.lang = 'en-AU';
+  recog.interimResults = false;
+  recog.maxAlternatives = 1;
+  var listening = false;
+  micBtn.addEventListener('click', function() {
+    if (listening) { recog.stop(); return; }
+    recog.start();
+  });
+  recog.onstart = function() {
+    listening = true;
+    micBtn.innerHTML = '&#x23F9;&#xFE0F;';
+    micBtn.title = 'Listening… click to stop';
+    micBtn.style.color = 'var(--accent)';
+  };
+  recog.onresult = function(e) {
+    var transcript = e.results[0][0].transcript.trim();
+    if (transcript) {
+      var inp = document.getElementById('input');
+      if (inp) inp.value = transcript;
+      sendMessage(transcript);
+    }
+  };
+  recog.onend = function() {
+    listening = false;
+    micBtn.innerHTML = '&#x1F3A4;';
+    micBtn.title = 'Voice input';
+    micBtn.style.color = 'var(--muted)';
+  };
+  recog.onerror = function(e) {
+    listening = false;
+    micBtn.innerHTML = '&#x1F3A4;';
+    micBtn.style.color = 'var(--muted)';
+    if (e.error !== 'no-speech' && e.error !== 'aborted') {
+      console.warn('Speech recognition error:', e.error);
+    }
+  };
+})();
+
 async function send(text) {
   let conv = getActive();
   if (!conv) conv = newConvo(null);
@@ -2846,26 +2930,50 @@ export default {
         return new Response(JSON.stringify({ ok: false, error: e.message }), { status: 502, headers: { 'Content-Type': 'application/json' } });
       }
     }
+    if (path === '/logout') {
+      return new Response(null, { status: 302, headers: {
+        'Location': '/login',
+        'Set-Cookie': [
+          'asgard_pin=; Path=/; HttpOnly; Max-Age=0; SameSite=Lax',
+          'asgard_user=; Path=/; Max-Age=0; SameSite=Lax'
+        ],
+        'Cache-Control': 'no-store'
+      }});
+    }
+
     if (path === '/login') {
-      const validPins = [env.PADDY_PIN, env.JACKY_PIN, env.GEORGE_PIN].filter(Boolean);
+      const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
       if (request.method === 'POST') {
-        let pin = '';
-        try { const fd = await request.formData(); pin = fd.get('pin') || ''; } catch(e) {}
-        if (pin && validPins.includes(pin)) {
-          return new Response(null, { status: 302, headers: {
-            'Location': '/',
-            'Set-Cookie': 'asgard_pin=' + encodeURIComponent(pin) + '; Path=/; Max-Age=31536000; SameSite=Lax',
-            'Cache-Control': 'no-store'
-          }});
+        let email = '', password = '';
+        try { const fd = await request.formData(); email = (fd.get('email')||'').toLowerCase().trim(); password = fd.get('password')||''; } catch(e) {}
+        if (checkRateLimit(clientIp)) {
+          const lockHtml = loginPage('<p class=locked>Too many attempts. Try again in 10 minutes.</p>', email);
+          return new Response(lockHtml, { status: 429, headers: {'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'} });
         }
-        const errMsg = pin ? 'Wrong PIN. Try again.' : '';
-        const lp2 = '<style>*{box-sizing:border-box;margin:0;padding:0}body{background:#12121f;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif}.b{background:#1e1e35;padding:2rem;border-radius:16px;width:300px;text-align:center}h1{color:#fff;font-size:1.25rem;margin:.5rem 0}p{color:#888;font-size:.85rem;margin:.5rem 0 1.2rem}.err{color:#ef4444;font-size:.85rem;margin:.5rem 0}input{width:100%;padding:.75rem;border-radius:8px;border:1px solid #c44;background:#0d0d1a;color:#fff;font-size:1rem;margin-bottom:.75rem}button{width:100%;padding:.75rem;background:#d97757;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer}</style><div class="b"><div style="font-size:2rem">&#x1F409;</div><h1>Asgard</h1>' + (errMsg ? '<p class=err>' + errMsg + '</p>' : '<p>Enter your PIN</p>') + '<form method=POST action=/login><input name=pin type=password placeholder=PIN autocomplete=off autofocus><button>Login</button></form></div>';
-        return new Response('<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Asgard Login</title>' + lp2 + '</html>', {
+        const user = ASGARD_USERS.find(u => u.email === email);
+        if (user && password) {
+          const ok = await verifyPassword(password, user.salt, user.hash);
+          if (ok) {
+            loginAttempts.delete(clientIp);
+            return new Response(null, { status: 302, headers: {
+              'Location': '/',
+              'Set-Cookie': [
+                'asgard_pin=2967; Path=/; HttpOnly; Max-Age=31536000; SameSite=Lax',
+                'asgard_user=' + user.userId + '; Path=/; Max-Age=31536000; SameSite=Lax'
+              ],
+              'Cache-Control': 'no-store'
+            }});
+          }
+        }
+        recordFailure(clientIp);
+        const attEntry = loginAttempts.get(clientIp) || {count:0};
+        const remaining = Math.max(0, 5 - attEntry.count);
+        const errMsg = email ? 'Incorrect email or password.' + (remaining < 3 ? ' ' + remaining + ' attempts left.' : '') : '';
+        return new Response(loginPage('<p class=err>' + errMsg + '</p>', email), {
           status: 401, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }
         });
       }
-      const lp = '<style>*{box-sizing:border-box;margin:0;padding:0}body{background:#12121f;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif}.b{background:#1e1e35;padding:2rem;border-radius:16px;width:300px;text-align:center}h1{color:#fff;font-size:1.25rem;margin:.5rem 0}p{color:#888;font-size:.85rem;margin:.5rem 0 1.2rem}input{width:100%;padding:.75rem;border-radius:8px;border:1px solid #444;background:#0d0d1a;color:#fff;font-size:1rem;margin-bottom:.75rem}button{width:100%;padding:.75rem;background:#d97757;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer}</style><div class="b"><div style="font-size:2rem">&#x1F409;</div><h1>Asgard</h1><p>Enter your PIN</p><form method=POST action=/login><input name=pin type=password placeholder=PIN autocomplete=off autofocus><button>Login</button></form></div>';
-      return new Response('<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>Asgard Login</title>' + lp + '</html>', {
+      return new Response(loginPage(), {
         headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' }
       });
     }
