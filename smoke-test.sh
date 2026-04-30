@@ -60,12 +60,14 @@ printf "========================================\n\n"
 
 echo "[ Main App: $BASE ]"
 
-check_http  "Login page loads"         "$BASE/login" "200"
-check_body  "Login page has PIN form"  "$BASE/login" "type=password"
-check_absent "Zero pgallivan refs"     "$BASE/"      "pgallivan"
+check_http   "Login page loads"             "$BASE/login" "200"
+check_body   "Login page has email form"    "$BASE/login" "type=email"
+check_body   "Login page has password form" "$BASE/login" "type=password"
+check_absent "Zero pgallivan refs"          "$BASE/"      "pgallivan"
 
 LOGIN_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
-  -X POST -d "pin=$PIN" -c /tmp/asgard_smoke_cookies.txt "$BASE/login" 2>/dev/null)
+  -X POST -d "email=pgallivan%40outlook.com&password=LuckDragon%232025" \
+  -c /tmp/asgard_smoke_cookies.txt "$BASE/login" 2>/dev/null)
 if [ "$LOGIN_CODE" = "302" ] || [ "$LOGIN_CODE" = "200" ]; then
   pass "POST /login authenticates ($LOGIN_CODE)"
 else
@@ -94,12 +96,11 @@ check_body "asgard-vault health" "$VAULT/health" '"ok":true'  -H "X-Pin: $PIN"
 echo ""
 echo "[ Key Features ]"
 
-check_body "Projects list"          "$TOOLS/admin/projects" '"workers"' \
-  -H "X-Pin: $PIN" -H "Origin: $BASE"
-check_body "AI models listed"       "$AI/health"   '"models"'            -H "X-Pin: $PIN"
-check_body "Multi-provider AI"      "$AI/health"   '"anthropic":true'    -H "X-Pin: $PIN"
-check_body "Vault lists secrets"    "$VAULT/secrets" '"keys"'            -H "X-Pin: $PIN"
-check_body "Brain has tools"        "$BRAIN/health" '"tools"'            -H "X-Pin: $PIN"
+check_body "Projects list"       "$TOOLS/admin/projects" '"workers"'        -H "X-Pin: $PIN" -H "Origin: $BASE"
+check_body "AI models listed"    "$AI/health"            '"models"'         -H "X-Pin: $PIN"
+check_body "Multi-provider AI"   "$AI/health"            '"anthropic":true' -H "X-Pin: $PIN"
+check_body "Vault lists secrets" "$VAULT/secrets"        '"keys"'           -H "X-Pin: $PIN"
+check_body "Brain has tools"     "$BRAIN/health"         '"tools"'          -H "X-Pin: $PIN"
 
 echo ""
 echo "[ Security ]"
@@ -119,11 +120,11 @@ else
 fi
 
 WRONG=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
-  -X POST -d "pin=0000" "$BASE/login" 2>/dev/null)
+  -X POST -d "email=wrong%40example.com&password=wrongpassword" "$BASE/login" 2>/dev/null)
 if [ "$WRONG" = "401" ] || [ "$WRONG" = "403" ] || [ "$WRONG" = "200" ]; then
-  pass "Login rejects wrong PIN"
+  pass "Login rejects wrong credentials"
 else
-  fail "Login wrong PIN gave unexpected $WRONG"
+  fail "Login wrong credentials gave unexpected $WRONG"
 fi
 
 echo ""
@@ -138,4 +139,3 @@ else
   printf "ALL CLEAR -- safe to deploy to %s\n" "$TARGET"
   exit 0
 fi
-
