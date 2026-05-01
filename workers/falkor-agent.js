@@ -1,10 +1,10 @@
-// falkor-agent v1.5.0 — Durable Object per user
+// falkor-agent v1.6.0 — Durable Object per user
 // Phase 2 of the Falkor rebuild (formerly Asgard)
 // Persistent WebSocket hub + chat history + per-user memory
 // One DO instance per user (keyed by userId)
 // v1.3.0-a2a: Added falkor-code A2A routing
 // v1.4.0: Haiku model override for sport/KBT queries (prevent Groq hallucinations on structured data)
-// v1.5.0: CORS on all responses, productContext param for widget embeds
+// v1.6.0: CORS on all responses, productContext param for widget embeds
 
 const BRAIN_URL = 'https://falkor-brain.luckdragon.io';
 
@@ -13,6 +13,31 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, X-Pin, Upgrade, Connection',
 };
+
+// ── User context builder ──────────────────────────────────────────────────────
+function buildUserContext(userId, userName) {
+  const profiles = {
+    paddy: {
+      name: 'Paddy',
+      desc: "a PE teacher at Williamstown Primary School (WPS). He runs Kow Brainer Trivia (KBT), loves AFL (Essendon), does family footy tips and racing tipping comps, and manages three sports products: Carnival Timing, School Sport Portal, and SportCarnival.",
+      interests: ['AFL', 'Essendon', 'KBT trivia', 'PE', 'WPS school', 'footy tips', 'TAB racing', 'family'],
+    },
+    jacky: {
+      name: 'Jacky',
+      desc: "a family member who uses Falkor for footy tips, racing, and general queries.",
+      interests: ['footy tips', 'racing', 'family'],
+    },
+    george: {
+      name: 'George',
+      desc: "a family member who uses Falkor for footy tips, racing, and general queries.",
+      interests: ['footy tips', 'racing', 'family'],
+    },
+  };
+  const profile = profiles[userId] || { name: userName || 'there', desc: 'a Falkor user.', interests: [] };
+  return profile;
+}
+
+
 
 function corsJson(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -118,8 +143,10 @@ export class FalkorAgent {
 
     // REST endpoints
     if (path === '/chat' && request.method === 'POST') {
-      const { text, model, productContext } = await request.json();
-      const reply = await this.processChat(text, model || 'groq-fast', null, productContext || null);
+      const body = await request.json();
+        const { text, model, productContext } = body;
+        const userId = request.headers.get('X-User-Id') || body.userId || 'paddy';
+      const reply = await this.processChat(text, model || 'groq-fast', null, productContext, userId);
       return corsJson({ reply });
     }
 
@@ -197,7 +224,7 @@ export class FalkorAgent {
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  async processChat(text, model, ws, productContext) {
+  async processChat(text, model, ws, productContext, userId) {
     const history = await this.getHistory();
     const memory = await this.getMemory();
     const memoryLines = Object.entries(memory).map(([k, v]) => `${k}: ${v}`).join('\n');
@@ -266,7 +293,10 @@ export class FalkorAgent {
         body: JSON.stringify({
           message: text,
           context,
-          system: "You are Falkor, Paddy's intelligent personal AI. You have real-time access to AFL/sport data (falkor-sport), KBT trivia (falkor-kbt), PE weather alerts (falkor-workflows), and personal memory (falkor-brain). Use live data in context to give specific, actionable answers." + systemExtra + ragContext + productCtxStr,
+          system: (function() {
+          const uCtx = buildUserContext(userId || 'paddy', userId);
+          return 'You are Falkor, ' + uCtx.name + "'s intelligent personal AI. " + uCtx.name + ' is ' + uCtx.desc + ' You have real-time access to AFL/sport data (falkor-sport), KBT trivia (falkor-kbt), PE weather alerts (falkor-workflows), web search (falkor-web), and personal memory (falkor-brain). Use live data in context to give specific, actionable answers. Always address ' + uCtx.name + ' by name.' + systemExtra + ragContext + productCtxStr;
+        })(),
           model,
           max_tokens: 2048,
         }),
