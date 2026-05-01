@@ -2,15 +2,14 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === '/health') {
-      return new Response(JSON.stringify({status:'ok',version:'1.2.0',worker:'falkor-ui'}), {
+      return new Response(JSON.stringify({status:'ok',version:'1.3.0',worker:'falkor-ui'}), {
         headers: {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}
       });
     }
     const HTML = `<!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Falkor</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
@@ -33,7 +32,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .btn-ghost{background:transparent;border:1px solid var(--border);color:var(--text)}
 .btn-ghost:hover{background:var(--border);opacity:1}
 .err-msg{color:var(--danger);font-size:13px;margin-bottom:12px}
-.app{display:flex;height:100dvh}
+.app{display:flex;height:100dvh;position:relative}
 .sidebar{width:260px;min-width:260px;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;transition:transform .2s}
 .sidebar-top{padding:16px 12px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
 .logo-text{font-size:18px;font-weight:700;flex:1}
@@ -50,7 +49,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .sidebar-footer{padding:12px;border-top:1px solid var(--border);display:flex;align-items:center;gap:8px}
 .user-pill{background:var(--border);border-radius:20px;font-size:12px;padding:5px 12px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .main{flex:1;display:flex;flex-direction:column;overflow:hidden}
-.topbar{border-bottom:1px solid var(--border);padding:10px 16px;display:flex;align-items:center;gap:10px;min-height:52px}
+.topbar{border-bottom:1px solid var(--border);padding:10px 16px;display:flex;align-items:center;gap:8px;min-height:52px}
 .model-select{background:var(--input-bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:5px 10px;cursor:pointer}
 .topbar-title{font-size:14px;font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ws-dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex-shrink:0}
@@ -64,6 +63,8 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .typing-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--muted);animation:bounce .9s infinite;margin:0 2px}
 .typing-dot:nth-child(2){animation-delay:.2s}.typing-dot:nth-child(3){animation-delay:.4s}
 @keyframes bounce{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-6px)}}
+.cursor-blink{display:inline-block;width:2px;height:14px;background:var(--accent);vertical-align:text-bottom;margin-left:1px;animation:blink .7s step-end infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
 .composer{padding:14px 16px;border-top:1px solid var(--border);background:var(--bg)}
 .composer-inner{display:flex;gap:8px;align-items:flex-end;background:var(--input-bg);border:1px solid var(--border);border-radius:12px;padding:8px 12px;transition:border .15s}
 .composer-inner:focus-within{border-color:var(--accent)}
@@ -92,7 +93,7 @@ textarea{background:none;border:none;color:var(--text);flex:1;font-size:14px;lin
 .sport-table{width:100%;border-collapse:collapse;font-size:13px}
 .sport-table th{text-align:left;padding:6px 8px;color:var(--muted);border-bottom:1px solid var(--border)}
 .sport-table td{padding:7px 8px;border-bottom:1px solid var(--border)}
-/* ── Voice ── */
+/* Voice */
 .voice-overlay{position:fixed;inset:0;background:rgba(10,10,14,.92);z-index:200;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;backdrop-filter:blur(6px)}
 .voice-dragon{font-size:64px;line-height:1;filter:drop-shadow(0 0 24px rgba(108,99,255,.6))}
 .voice-status{font-size:15px;color:var(--accent2);letter-spacing:.03em;min-height:22px}
@@ -112,10 +113,25 @@ textarea{background:none;border:none;color:var(--text);flex:1;font-size:14px;lin
 .voice-btn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:4px 6px;border-radius:6px;line-height:1;transition:color .15s}
 .voice-btn:hover{color:var(--accent2)}
 .voice-btn.active{color:var(--accent)}
-/* ── Toast ── */
+/* Toast */
 .toast-container{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:300;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none}
 .toast{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:10px 18px;font-size:13px;color:var(--text);box-shadow:0 4px 20px rgba(0,0,0,.4);animation:toast-in .2s ease;max-width:360px;text-align:center}
 @keyframes toast-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+/* Driving mode */
+.driving-overlay{position:fixed;inset:0;background:#050508;z-index:500;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;overflow:hidden}
+.driving-dragon{font-size:80px;line-height:1;filter:drop-shadow(0 0 40px rgba(108,99,255,.8));animation:float 3s ease-in-out infinite}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+.driving-name{font-size:32px;font-weight:700;letter-spacing:2px;color:var(--accent2)}
+.driving-status{font-size:20px;color:var(--muted);min-height:28px;letter-spacing:.03em}
+.driving-transcript{font-size:18px;color:var(--muted);max-width:700px;text-align:center;min-height:54px;line-height:1.5;padding:0 32px;font-style:italic}
+.driving-reply{font-size:20px;color:var(--text);max-width:700px;text-align:center;min-height:60px;line-height:1.5;padding:0 32px}
+.driving-mic{width:110px;height:110px;border-radius:50%;border:none;cursor:pointer;font-size:44px;display:flex;align-items:center;justify-content:center;background:var(--accent);position:relative;transition:background .3s;box-shadow:0 0 40px rgba(108,99,255,.4)}
+.driving-mic.listening{background:#ef4444;box-shadow:0 0 50px rgba(239,68,68,.5)}
+.driving-mic.listening::before{content:'';position:absolute;inset:-12px;border-radius:50%;border:3px solid #ef4444;animation:pulse-ring 1s ease-out infinite}
+.driving-mic.speaking{background:var(--success);box-shadow:0 0 50px rgba(34,197,94,.4)}
+.driving-mic:disabled{cursor:not-allowed;opacity:.6}
+.driving-exit{position:absolute;top:28px;right:28px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:var(--text);border-radius:10px;padding:10px 22px;cursor:pointer;font-size:15px;letter-spacing:.02em}
+.driving-exit:hover{background:rgba(255,255,255,.14)}
 </style>
 </head>
 <body>
@@ -128,11 +144,11 @@ const SPORT_URL = 'https://falkor-sport.luckdragon.io';
 const AUTH_URL  = 'https://asgard.luckdragon.io';
 const AI_URL    = 'https://asgard-ai.luckdragon.io';
 const MODELS = [
-  { key: 'groq-fast',  label: '⚡ Groq Fast' },
-  { key: 'groq',       label: '🧠 Groq 70B' },
-  { key: 'groq-think', label: '🔍 Groq Think' },
-  { key: 'haiku',      label: '🌸 Haiku' },
-  { key: 'sonnet',     label: '✨ Sonnet' },
+  { key: 'groq-fast',  label: '\u26a1 Groq Fast' },
+  { key: 'groq',       label: '\ud83e\udde0 Groq 70B' },
+  { key: 'groq-think', label: '\ud83d\udd0d Groq Think' },
+  { key: 'haiku',      label: '\ud83c\udf38 Haiku' },
+  { key: 'sonnet',     label: '\u2728 Sonnet' },
 ];
 const LS = {
   pin:    () => localStorage.getItem('falkor.pin') || '',
@@ -149,21 +165,19 @@ const LS = {
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
 function renderMD(text) {
   return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    .replace(/\`\`\`([\\s\\S]*?)\`\`\`/g,'<pre><code>$1</code></pre>')
+    .replace(/\`\`\`([\s\S]*?)\`\`\`/g,'<pre><code>$1</code></pre>')
     .replace(/\`([^\`]+)\`/g,'<code>$1</code>')
-    .replace(/\\*\\*([^*]+)\\*\\*/g,'<strong>$1</strong>')
-    .replace(/\\*([^*]+)\\*/g,'<em>$1</em>')
-    .replace(/\\n/g,'<br>');
+    .replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g,'<em>$1</em>')
+    .replace(/\n/g,'<br>');
 }
 
-// ── Toast ──────────────────────────────────────────────────────
-let _toastId = 0;
-let _setToasts = null;
+// Toast
+let _toastId = 0, _setToasts = null;
 function toast(msg, duration) {
   if (!_setToasts) return;
-  var d = duration || 3000;
-  var id = ++_toastId;
-  _setToasts(function(prev) { return prev.concat([{ id: id, msg: msg }]); });
+  var d = duration || 3000, id = ++_toastId;
+  _setToasts(function(prev) { return prev.concat([{ id, msg }]); });
   setTimeout(function() { _setToasts(function(prev) { return prev.filter(function(t) { return t.id !== id; }); }); }, d);
 }
 function ToastContainer() {
@@ -177,12 +191,11 @@ function ToastContainer() {
   );
 }
 
-// ── Voice Waveform ─────────────────────────────────────────────
+// VoiceWaveform
 function VoiceWaveform({ analyserRef, active }) {
   const barsRef = useRef([]);
   const rafRef = useRef(null);
   const NUM_BARS = 18;
-
   useEffect(() => {
     if (!active || !analyserRef.current) {
       barsRef.current.forEach(b => { if(b) b.style.height = '4px'; });
@@ -203,7 +216,6 @@ function VoiceWaveform({ analyserRef, active }) {
     draw();
     return () => cancelAnimationFrame(rafRef.current);
   }, [active]);
-
   return (
     <div className="waveform">
       {Array.from({length: NUM_BARS}, (_, i) => (
@@ -213,13 +225,13 @@ function VoiceWaveform({ analyserRef, active }) {
   );
 }
 
-// ── Voice Modal ────────────────────────────────────────────────
+// VoiceModal
 function VoiceModal({ voiceState, transcript, reply, analyserRef, onMicClick, onClose }) {
   const statusMap = {
-    idle:       '🎙️ Tap mic to speak',
-    listening:  '🔴 Listening…',
-    processing: '⚙️ Processing…',
-    speaking:   '🔊 Speaking…',
+    idle:       '\ud83c\udf99\ufe0f Tap mic to speak',
+    listening:  '\ud83d\udd34 Listening…',
+    processing: '\u2699\ufe0f Processing…',
+    speaking:   '\ud83d\udd0a Speaking…',
   };
   return (
     <div className="voice-overlay">
@@ -234,13 +246,13 @@ function VoiceModal({ voiceState, transcript, reply, analyserRef, onMicClick, on
         onClick={onMicClick}
         disabled={voiceState==='processing'||voiceState==='speaking'}
       >
-        {voiceState==='listening' ? '⏹' : voiceState==='speaking' ? '🔊' : '🎤'}
+        {voiceState==='listening' ? '\u23f9' : voiceState==='speaking' ? '\ud83d\udd0a' : '\ud83c\udfa4'}
       </button>
     </div>
   );
 }
 
-// ── Login ──────────────────────────────────────────────────────
+// LoginScreen
 function LoginScreen({ onLogin }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -249,12 +261,12 @@ function LoginScreen({ onLogin }) {
   async function handleSubmit(e) {
     e.preventDefault(); setLoading(true); setError('');
     try {
-      await fetch(\`\${AUTH_URL}/login\`, {
+      await fetch(AUTH_URL + '/login', {
         method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
-        body:\`email=\${encodeURIComponent(email)}&password=\${encodeURIComponent(password)}\`,
+        body:'email='+encodeURIComponent(email)+'&password='+encodeURIComponent(password),
         redirect:'manual', credentials:'include',
       });
-      const test = await fetch(\`\${AGENT_URL}/status\`, { headers:{'X-Pin':'535554'} }).catch(()=>null);
+      const test = await fetch(AGENT_URL + '/status', { headers:{'X-Pin':'535554'} }).catch(()=>null);
       if (test && test.ok) { LS.setPin('535554'); onLogin({ email, name: email.split('@')[0] }); }
       else setError('Incorrect email or password.');
     } catch { setError('Connection error. Try again.'); }
@@ -276,34 +288,34 @@ function LoginScreen({ onLogin }) {
   );
 }
 
-// ── Settings ───────────────────────────────────────────────────
+// SettingsPanel
 function SettingsPanel({ onClose, theme, onThemeToggle, voiceEnabled, onVoiceToggle }) {
   const [status, setStatus] = useState(null);
   useEffect(() => {
-    fetch(\`\${AGENT_URL}/status\`,{headers:{'X-Pin':LS.pin()}}).then(r=>r.json()).then(setStatus).catch(()=>{});
+    fetch(AGENT_URL+'/status',{headers:{'X-Pin':LS.pin()}}).then(r=>r.json()).then(setStatus).catch(()=>{});
   }, []);
   return (
     <div className="settings-overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
       <div className="settings-panel">
         <div className="settings-title">⚙️ Settings</div>
         <hr className="divider"/>
-        <div className="setting-row"><span className="setting-label">Theme (light)</span><div className={\`toggle \${theme==='light'?'on':''}\`} onClick={onThemeToggle}/></div>
-        <div className="setting-row"><span className="setting-label">🎙️ Voice replies</span><div className={\`toggle \${voiceEnabled?'on':''}\`} onClick={onVoiceToggle}/></div>
-        <div className="setting-row"><span className="setting-label" style={{fontSize:12,color:'var(--muted)'}}>Say "Hey Falkor" to activate voice</span></div>
+        <div className="setting-row"><span className="setting-label">Theme (light)</span><div className={'toggle '+(theme==='light'?'on':'')} onClick={onThemeToggle}/></div>
+        <div className="setting-row"><span className="setting-label">🎙️ Voice replies</span><div className={'toggle '+(voiceEnabled?'on':'')} onClick={onVoiceToggle}/></div>
+        <div className="setting-row"><span className="setting-label" style={{fontSize:12,color:'var(--muted)'}}>Say &quot;Hey Falkor&quot; to activate voice</span></div>
         <hr className="divider"/>
         <div className="setting-row"><span className="setting-label">Agent</span><span className="setting-val">falkor-agent.luckdragon.io</span></div>
         {status&&<><div className="setting-row"><span className="setting-label">Version</span><span className="setting-val">v{status.version}</span></div>
         <div className="setting-row"><span className="setting-label">History</span><span className="setting-val">{status.historyLength} msgs</span></div>
         <div className="setting-row"><span className="setting-label">Memory</span><span className="setting-val">{status.memoryKeys} keys</span></div></>}
         <hr className="divider"/>
-        <button className="btn btn-ghost" onClick={()=>{if(confirm('Clear chat history?'))fetch(\`\${AGENT_URL}/history\`,{method:'DELETE',headers:{'X-Pin':LS.pin()}});onClose();}}>Clear history</button>
+        <button className="btn btn-ghost" onClick={()=>{if(confirm('Clear chat history?'))fetch(AGENT_URL+'/history',{method:'DELETE',headers:{'X-Pin':LS.pin()}});onClose();}}>Clear history</button>
         <button className="btn" style={{background:'var(--danger)'}} onClick={()=>{localStorage.removeItem('falkor.pin');localStorage.removeItem('falkor.user');window.location.reload();}}>Sign out</button>
       </div>
     </div>
   );
 }
 
-// ── Sport Panel ────────────────────────────────────────────────
+// SportPanel
 function SportPanel({ pin }) {
   const [ladder,setLadder]=useState(null);
   const [games,setGames]=useState([]);
@@ -315,18 +327,18 @@ function SportPanel({ pin }) {
   const [player,setPlayer]=useState(()=>localStorage.getItem('falkor.sport.player')||'');
   const [tipped,setTipped]=useState({});
   const YEAR=2026;
-
   async function sf(path) {
-    const res=await fetch(\`\${SPORT_URL}\${path}\${path.includes('?')?'&':'?'}pin=\${pin}\`);
+    const sep = path.includes('?')?'&':'?';
+    const res = await fetch(SPORT_URL+path+sep+'pin='+pin);
     return res.json();
   }
   async function load() {
     setLoading(true);
     const [l,g,t,c]=await Promise.allSettled([
-      sf(\`/afl/ladder?year=\${YEAR}\`),
-      sf(\`/afl/round?year=\${YEAR}&round=\${rnd}\`),
-      sf(\`/afl/tips?year=\${YEAR}&round=\${rnd}\`),
-      sf(\`/afl/comp?year=\${YEAR}&round=\${rnd}\`),
+      sf('/afl/ladder?year='+YEAR),
+      sf('/afl/round?year='+YEAR+'&round='+rnd),
+      sf('/afl/tips?year='+YEAR+'&round='+rnd),
+      sf('/afl/comp?year='+YEAR+'&round='+rnd),
     ]);
     if(l.status==='fulfilled')setLadder(l.value);
     if(g.status==='fulfilled')setGames(g.value);
@@ -335,41 +347,31 @@ function SportPanel({ pin }) {
     setLoading(false);
   }
   useEffect(()=>{load();},[rnd]);
-
   async function tip(gameId,team) {
     if(!player){alert('Enter your name first');return;}
     localStorage.setItem('falkor.sport.player',player);
-    await fetch(\`\${SPORT_URL}/afl/comp/tip?pin=\${pin}\`,{
+    await fetch(SPORT_URL+'/afl/comp/tip?pin='+pin,{
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({player,round:rnd,gameId,tip:team}),
     });
     setTipped(p=>({...p,[gameId]:team}));
     setTimeout(load,500);
   }
-
-  const TB = (t) => ({
-    padding:'6px 14px',border:'none',borderRadius:'6px',cursor:'pointer',fontSize:'13px',
-    background:tab===t?'var(--accent)':'var(--border)',
-    color:tab===t?'#fff':'var(--text)',marginRight:'4px',
-  });
-
+  const TB = (t) => ({padding:'6px 14px',border:'none',borderRadius:'6px',cursor:'pointer',fontSize:'13px',background:tab===t?'var(--accent)':'var(--border)',color:tab===t?'#fff':'var(--text)',marginRight:'4px'});
   return (
     <div style={{flex:1,overflow:'auto',padding:'16px 20px'}}>
       <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'16px',flexWrap:'wrap'}}>
         <span style={{fontSize:'18px',fontWeight:700}}>🏈 AFL {YEAR}</span>
         <span style={{color:'var(--muted)',fontSize:'13px'}}>Round</span>
-        <select value={rnd} onChange={e=>setRnd(Number(e.target.value))}
-          style={{background:'var(--input-bg)',border:'1px solid var(--border)',borderRadius:'6px',color:'var(--text)',padding:'4px 8px',fontSize:'13px'}}>
+        <select value={rnd} onChange={e=>setRnd(Number(e.target.value))} style={{background:'var(--input-bg)',border:'1px solid var(--border)',borderRadius:'6px',color:'var(--text)',padding:'4px 8px',fontSize:'13px'}}>
           {Array.from({length:24},(_,i)=>i+1).map(r=><option key={r} value={r}>R{r}</option>)}
         </select>
-        <button onClick={load} style={{...TB('x'),background:'var(--border)',color:'var(--text)'}}>↻</button>
+        <button onClick={load} style={{...TB('x'),background:'var(--border)',color:'var(--text)'}}>&#8635;</button>
         <div style={{marginLeft:'auto'}}>
           {['ladder','results','tips','comp'].map(t=><button key={t} style={TB(t)} onClick={()=>setTab(t)}>{t.charAt(0).toUpperCase()+t.slice(1)}</button>)}
         </div>
       </div>
-
       {loading && <div style={{color:'var(--muted)',fontSize:'13px',padding:'20px'}}>Loading…</div>}
-
       {!loading && tab==='ladder' && ladder && (
         <table className="sport-table">
           <thead><tr><th>#</th><th>Team</th><th>W</th><th>L</th><th>D</th><th>Pts</th><th>%</th></tr></thead>
@@ -386,7 +388,6 @@ function SportPanel({ pin }) {
           ))}</tbody>
         </table>
       )}
-
       {!loading && tab==='results' && (
         <div style={{display:'flex',flexDirection:'column',gap:'8px'}}>
           {games.map(g=>(
@@ -394,21 +395,16 @@ function SportPanel({ pin }) {
               <div style={{display:'flex',alignItems:'center',gap:'8px',justifyContent:'space-between',flexWrap:'wrap'}}>
                 <div style={{display:'flex',gap:'12px',alignItems:'center',flex:1}}>
                   <span style={{fontWeight:g.winner===g.home?700:400,flex:1,textAlign:'right'}}>{g.home}</span>
-                  <span style={{color:'var(--muted)',fontSize:'12px',flexShrink:0}}>{g.status==='upcoming'?'vs':\`\${g.homeScore} – \${g.awayScore}\`}</span>
+                  <span style={{color:'var(--muted)',fontSize:'12px',flexShrink:0}}>{g.status==='upcoming'?'vs':g.homeScore+' – '+g.awayScore}</span>
                   <span style={{fontWeight:g.winner===g.away?700:400,flex:1}}>{g.away}</span>
                 </div>
-                <span style={{fontSize:'11px',padding:'3px 8px',borderRadius:'20px',flexShrink:0,
-                  background:g.status==='final'?'rgba(34,197,94,.15)':g.status==='live'?'rgba(245,158,11,.15)':'var(--border)',
-                  color:g.status==='final'?'var(--success)':g.status==='live'?'#f59e0b':'var(--muted)'}}>
-                  {g.status==='final'?'Final':g.status==='live'?'LIVE':g.date?.slice(0,10)||'TBC'}
-                </span>
+                <span style={{fontSize:'11px',padding:'3px 8px',borderRadius:'20px',flexShrink:0,background:g.status==='final'?'rgba(34,197,94,.15)':g.status==='live'?'rgba(245,158,11,.15)':'var(--border)',color:g.status==='final'?'var(--success)':g.status==='live'?'#f59e0b':'var(--muted)'}}>{g.status==='final'?'Final':g.status==='live'?'LIVE':g.date?.slice(0,10)||'TBC'}</span>
               </div>
               {g.venue&&<div style={{fontSize:'11px',color:'var(--muted)',marginTop:'4px'}}>📍 {g.venue}</div>}
             </div>
           ))}
         </div>
       )}
-
       {!loading && tab==='tips' && (
         <div style={{display:'flex',flexDirection:'column',gap:'8px'}}>
           <div style={{fontSize:'12px',color:'var(--muted)',marginBottom:'4px'}}>AI model tips — Round {rnd} (Squiggle)</div>
@@ -417,20 +413,15 @@ function SportPanel({ pin }) {
             <div key={i} style={{background:'var(--panel)',border:'1px solid var(--border)',borderRadius:'10px',padding:'12px 16px',display:'flex',alignItems:'center',gap:'12px'}}>
               <span style={{fontWeight:600,flex:1}}>{t.tip}</span>
               <span style={{color:'var(--muted)',fontSize:'12px'}}>vs {t.opponent}</span>
-              <span style={{background:'var(--border)',borderRadius:'20px',padding:'3px 10px',fontSize:'12px',
-                color:t.confidence>70?'var(--success)':t.confidence>55?'#f59e0b':'var(--danger)'}}>
-                {t.confidence}%
-              </span>
+              <span style={{background:'var(--border)',borderRadius:'20px',padding:'3px 10px',fontSize:'12px',color:t.confidence>70?'var(--success)':t.confidence>55?'#f59e0b':'var(--danger)'}}>{t.confidence}%</span>
             </div>
           ))}
         </div>
       )}
-
       {!loading && tab==='comp' && (
         <div>
           <div style={{marginBottom:'16px',display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap'}}>
-            <input value={player} onChange={e=>setPlayer(e.target.value)} onBlur={()=>localStorage.setItem('falkor.sport.player',player)}
-              placeholder="Your name" style={{background:'var(--input-bg)',border:'1px solid var(--border)',borderRadius:'8px',color:'var(--text)',padding:'7px 12px',fontSize:'13px',width:'160px'}}/>
+            <input value={player} onChange={e=>setPlayer(e.target.value)} onBlur={()=>localStorage.setItem('falkor.sport.player',player)} placeholder="Your name" style={{background:'var(--input-bg)',border:'1px solid var(--border)',borderRadius:'8px',color:'var(--text)',padding:'7px 12px',fontSize:'13px',width:'160px'}}/>
             <span style={{fontSize:'12px',color:'var(--muted)'}}>Tip Round {rnd} winners</span>
           </div>
           <div style={{display:'flex',flexDirection:'column',gap:'8px',marginBottom:'24px'}}>
@@ -441,15 +432,11 @@ function SportPanel({ pin }) {
                 <div key={g.id} style={{background:'var(--panel)',border:'1px solid var(--border)',borderRadius:'10px',padding:'12px 16px'}}>
                   <div style={{display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap'}}>
                     {[g.home,g.away].map((team)=>(
-                      <button key={team} onClick={()=>!done&&tip(String(g.id),team)}
-                        style={{flex:1,padding:'8px',borderRadius:'8px',cursor:done?'default':'pointer',fontSize:'13px',
-                          border:\`2px solid \${myTip===team?'var(--accent)':'var(--border)'}\`,
-                          background:myTip===team?'rgba(108,99,255,.15)':'var(--input-bg)',
-                          color:'var(--text)',fontWeight:myTip===team?700:400}}>
+                      <button key={team} onClick={()=>!done&&tip(String(g.id),team)} style={{flex:1,padding:'8px',borderRadius:'8px',cursor:done?'default':'pointer',fontSize:'13px',border:'2px solid '+(myTip===team?'var(--accent)':'var(--border)'),background:myTip===team?'rgba(108,99,255,.15)':'var(--input-bg)',color:'var(--text)',fontWeight:myTip===team?700:400}}>
                         {team}
                       </button>
                     )).reduce((acc,el,i)=>i===0?[el]:[...acc,<span key="v" style={{color:'var(--muted)',fontSize:'12px',flexShrink:0}}>vs</span>,el],[])}
-                    {done&&myTip&&<span style={{fontSize:'13px',flexShrink:0,color:g.winner===myTip?'var(--success)':'var(--danger)'}}>{g.winner===myTip?'✓':'✗'}</span>}
+                    {done&&myTip&&<span style={{fontSize:'13px',flexShrink:0,color:g.winner===myTip?'var(--success)':'var(--danger)'}}>{g.winner===myTip?'\u2713':'\u2717'}</span>}
                   </div>
                   {done&&<div style={{fontSize:'11px',color:'var(--muted)',marginTop:'4px'}}>Final: {g.home} {g.homeScore} – {g.awayScore} {g.away}</div>}
                 </div>
@@ -464,7 +451,7 @@ function SportPanel({ pin }) {
                 <tbody>{comp.season.map((p,i)=>(
                   <tr key={p.player}>
                     <td style={{color:'var(--muted)'}}>{i+1}</td>
-                    <td style={{fontWeight:p.player===player?700:400}}>{p.player}{p.player===player?' 👤':''}</td>
+                    <td style={{fontWeight:p.player===player?700:400}}>{p.player}{p.player===player?' \ud83d\udc64':''}</td>
                     <td style={{textAlign:'center',color:'var(--success)'}}>{p.correct}</td>
                     <td style={{textAlign:'center'}}>{p.total}</td>
                     <td style={{textAlign:'center',color:'var(--muted)'}}>{p.pct}%</td>
@@ -480,12 +467,12 @@ function SportPanel({ pin }) {
   );
 }
 
-// ── Message Bubble ─────────────────────────────────────────────
+// MessageBubble
 function MessageBubble({msg}){
   return(
-    <div className={\`msg-row \${msg.role}\`}>
+    <div className={'msg-row '+msg.role}>
       <div className="msg-role">{msg.role==='user'?'You':'🐉 Falkor'}</div>
-      <div className="msg-bubble" dangerouslySetInnerHTML={{__html:renderMD(msg.content)}}/>
+      <div className="msg-bubble" dangerouslySetInnerHTML={{__html:renderMD(msg.content||'')}}/>
     </div>
   );
 }
@@ -500,7 +487,7 @@ function TypingIndicator(){
   );
 }
 
-// ── App ────────────────────────────────────────────────────────
+// App
 function App(){
   const [user,setUser]=useState(()=>{try{return JSON.parse(localStorage.getItem('falkor.user')||'null')}catch{return null}});
   const [view,setView]=useState('chat');
@@ -520,6 +507,7 @@ function App(){
   const [voiceState,setVoiceState]=useState('idle');
   const [voiceTranscript,setVoiceTranscript]=useState('');
   const [voiceReply,setVoiceReply]=useState('');
+  const [drivingMode,setDrivingMode]=useState(false);
   const analyserRef=useRef(null);
   const audioCtxRef=useRef(null);
   const mediaRecorderRef=useRef(null);
@@ -529,21 +517,38 @@ function App(){
   const endRef=useRef(null);
   const taRef=useRef(null);
   const reconnTimer=useRef(null);
-  const activeConvo=convos.find(c=>c.id===activeId);
   const voiceEnabledRef=useRef(voiceEnabled);
   const showVoiceRef=useRef(showVoice);
+  const drivingModeRef=useRef(drivingMode);
+  const activeIdRef=useRef(activeId);
+  const streamTimerRef=useRef(null);
   useEffect(()=>{voiceEnabledRef.current=voiceEnabled;},[voiceEnabled]);
   useEffect(()=>{showVoiceRef.current=showVoice;},[showVoice]);
+  useEffect(()=>{drivingModeRef.current=drivingMode;},[drivingMode]);
+  useEffect(()=>{activeIdRef.current=activeId;},[activeId]);
+  const activeConvo=convos.find(c=>c.id===activeId);
 
   useEffect(()=>{document.documentElement.setAttribute('data-theme',theme);LS.setTheme(theme);},[theme]);
   useEffect(()=>{LS.setConvos(convos);},[convos]);
-  useEffect(()=>{endRef.current?.scrollIntoView({behavior:'smooth'});},[activeConvo?.messages,typing]);
+  useEffect(()=>{endRef.current?.scrollIntoView({behavior:'smooth'});},[convos,typing]);
+  useEffect(()=>{if(user&&convos.length===0)newConvo();},[user]);
+  useEffect(()=>{localStorage.setItem('falkor.activeId',activeId);},[activeId]);
 
+  // Driving mode auto-listen
+  useEffect(()=>{
+    if(drivingMode){
+      setTimeout(startListening,400);
+    } else {
+      stopRecording();
+    }
+  },[drivingMode]);
+
+  // WebSocket
   const connectWS=useCallback(()=>{
     if(!user||!LS.pin())return;
     if(wsRef.current&&wsRef.current.readyState<2)return;
     setWsState('connecting');
-    const ws=new WebSocket(AGENT_URL.replace('https://','wss://')+\`/?pin=\${LS.pin()}\`);
+    const ws=new WebSocket(AGENT_URL.replace('https://','wss://')+'/?pin='+LS.pin());
     wsRef.current=ws;
     ws.onopen=()=>{setWsState('connected');clearTimeout(reconnTimer.current);};
     ws.onmessage=(evt)=>{
@@ -551,21 +556,327 @@ function App(){
         const msg=JSON.parse(evt.data);
         if(msg.type==='assistant_reply'){
           setTyping(false);
-          const m={id:uid(),role:'assistant',content:msg.text,ts:Date.now()};
-          setConvos(prev=>prev.map(c=>c.id===activeId?{...c,messages:[...(c.messages||[]),m]}:c));
-          if(voiceEnabledRef.current && !showVoiceRef.current) speakText(msg.text);
+          const fullText=msg.text||'';
+          const msgId=uid();
+          const cid=activeIdRef.current;
+          // Add empty message placeholder
+          setConvos(prev=>prev.map(c=>c.id===cid?{...c,messages:[...(c.messages||[]),{id:msgId,role:'assistant',content:'',ts:Date.now()}]}:c));
+          // Typewriter effect
+          let i=0;
+          if(streamTimerRef.current)clearInterval(streamTimerRef.current);
+          streamTimerRef.current=setInterval(()=>{
+            i++;
+            setConvos(prev=>prev.map(c=>c.id===cid?{...c,messages:(c.messages||[]).map(m=>m.id===msgId?{...m,content:fullText.slice(0,i)}:m)}:c));
+            if(i>=fullText.length){
+              clearInterval(streamTimerRef.current);
+              streamTimerRef.current=null;
+              if(drivingModeRef.current){
+                setVoiceReply(fullText);
+                speakText(fullText);
+              } else if(voiceEnabledRef.current&&!showVoiceRef.current){
+                speakText(fullText);
+              }
+            }
+          },18);
         }
       }catch{}
     };
     ws.onclose=()=>{setWsState('disconnected');setTyping(false);reconnTimer.current=setTimeout(connectWS,3000);};
     ws.onerror=()=>ws.close();
-  },[user,activeId]);
+  },[user]);
 
   useEffect(()=>{if(user)connectWS();return()=>{clearTimeout(reconnTimer.current);wsRef.current?.close();};},[user]);
-  useEffect(()=>{localStorage.setItem('falkor.activeId',activeId);},[activeId]);
 
   // Wake word
-  useE`;
+  useEffect(()=>{
+    if(!user)return;
+    const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(!SR)return;
+    const recog=new SR();
+    recog.continuous=true;
+    recog.interimResults=false;
+    recog.lang='en-AU';
+    recog.onresult=(e)=>{
+      const t=Array.from(e.results).slice(-1)[0]?.[0]?.transcript?.toLowerCase()||'';
+      if(t.includes('hey falkor')&&!showVoiceRef.current&&!drivingModeRef.current){
+        setShowVoice(true);
+        toast('🐉 Hey! I\'m listening…');
+      }
+    };
+    recog.onerror=()=>{};
+    recog.onend=()=>{try{recog.start();}catch{}};
+    try{recog.start();}catch{}
+    return()=>{try{recog.stop();}catch{}};
+  },[user]);
+
+  // speakText
+  async function speakText(text){
+    try{
+      setVoiceState('speaking');
+      const res=await fetch(AI_URL+'/speak',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({text,model:'tts-1',voice:'nova'}),
+      });
+      if(!res.ok){setVoiceState('idle');return;}
+      const blob=await res.blob();
+      const url=URL.createObjectURL(blob);
+      const audio=new Audio(url);
+      try{
+        if(!audioCtxRef.current||audioCtxRef.current.state==='closed')audioCtxRef.current=new AudioContext();
+        const ctx=audioCtxRef.current;
+        if(ctx.state==='suspended')await ctx.resume();
+        const analyser=ctx.createAnalyser();
+        analyser.fftSize=256;
+        analyserRef.current=analyser;
+        const src=ctx.createMediaElementSource(audio);
+        src.connect(analyser);
+        analyser.connect(ctx.destination);
+      }catch{}
+      audio.onended=()=>{
+        setVoiceState('idle');
+        URL.revokeObjectURL(url);
+        if(drivingModeRef.current)setTimeout(()=>{if(drivingModeRef.current)startListening();},600);
+      };
+      audio.onerror=()=>{setVoiceState('idle');if(drivingModeRef.current)setTimeout(()=>{if(drivingModeRef.current)startListening();},600);};
+      audio.play().catch(()=>{
+        setVoiceState('idle');
+        if(drivingModeRef.current)setTimeout(()=>{if(drivingModeRef.current)startListening();},600);
+      });
+    }catch{setVoiceState('idle');if(drivingModeRef.current)setTimeout(()=>{if(drivingModeRef.current)startListening();},600);}
+  }
+
+  // startListening
+  async function startListening(){
+    try{
+      const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+      if(!audioCtxRef.current||audioCtxRef.current.state==='closed')audioCtxRef.current=new AudioContext();
+      const ctx=audioCtxRef.current;
+      if(ctx.state==='suspended')await ctx.resume();
+      const analyser=ctx.createAnalyser();
+      analyser.fftSize=256;
+      analyserRef.current=analyser;
+      const src=ctx.createMediaStreamSource(stream);
+      src.connect(analyser);
+      const mr=new MediaRecorder(stream,{mimeType:'audio/webm'});
+      mediaRecorderRef.current=mr;
+      chunksRef.current=[];
+      mr.ondataavailable=e=>{if(e.data.size>0)chunksRef.current.push(e.data);};
+      mr.onstop=async()=>{
+        stream.getTracks().forEach(t=>t.stop());
+        setVoiceState('processing');
+        const blob=new Blob(chunksRef.current,{type:'audio/webm'});
+        try{
+          const fd=new FormData();
+          fd.append('audio',blob,'audio.webm');
+          const res=await fetch(AI_URL+'/stt',{method:'POST',body:fd});
+          const data=await res.json();
+          const text=(data.text||data.transcript||'').trim();
+          if(text){
+            setVoiceTranscript(text);
+            sendMessage(text,null);
+            setVoiceState('idle');
+          } else {
+            setVoiceState('idle');
+            if(drivingModeRef.current)setTimeout(()=>{if(drivingModeRef.current)startListening();},500);
+          }
+        }catch{setVoiceState('idle');if(drivingModeRef.current)setTimeout(()=>{if(drivingModeRef.current)startListening();},500);}
+      };
+      mr.start();
+      setVoiceState('listening');
+      setVoiceTranscript('');
+      setVoiceReply('');
+      // Silence detection
+      const detect=()=>{
+        if(!mr||mr.state!=='recording')return;
+        const data2=new Uint8Array(analyser.frequencyBinCount);
+        analyser.getByteFrequencyData(data2);
+        const avg=data2.reduce((a,b)=>a+b,0)/data2.length;
+        if(avg<4){
+          if(!silenceTimerRef.current){
+            silenceTimerRef.current=setTimeout(()=>{
+              if(mr.state==='recording')mr.stop();
+              silenceTimerRef.current=null;
+            },1800);
+          }
+        } else {
+          if(silenceTimerRef.current){clearTimeout(silenceTimerRef.current);silenceTimerRef.current=null;}
+        }
+        if(mr.state==='recording')requestAnimationFrame(detect);
+      };
+      requestAnimationFrame(detect);
+    }catch(err){toast('Microphone access denied');setVoiceState('idle');}
+  }
+
+  function stopRecording(){
+    if(mediaRecorderRef.current&&mediaRecorderRef.current.state==='recording'){
+      try{mediaRecorderRef.current.stop();}catch{}
+    }
+    clearTimeout(silenceTimerRef.current);
+    silenceTimerRef.current=null;
+  }
+
+  function handleMicClick(){
+    if(voiceState==='listening'){stopRecording();}else{startListening();}
+  }
+
+  // sendMessage
+  function sendMessage(text,fileContent){
+    if(!text.trim()&&!fileContent)return;
+    if(wsRef.current?.readyState!==1){toast('Reconnecting…');return;}
+    let cid=activeIdRef.current;
+    const exists=convos.find(c=>c.id===cid);
+    if(!cid||!exists){
+      cid=uid();
+      const nc={id:cid,title:text.slice(0,40),messages:[],ts:Date.now()};
+      setConvos(prev=>[nc,...prev]);
+      setActiveId(cid);
+      activeIdRef.current=cid;
+    }
+    const m={id:uid(),role:'user',content:text,ts:Date.now()};
+    setConvos(prev=>prev.map(c=>c.id===cid?{...c,messages:[...(c.messages||[]),m],title:c.title||text.slice(0,40)}:c));
+    setInput('');setAttachment(null);setTyping(true);
+    wsRef.current.send(JSON.stringify({type:'chat',content:text,model,...(fileContent?{file:fileContent}:{})}));
+  }
+
+  async function doSend(){
+    if(!input.trim()&&!attachment)return;
+    let fc=null;
+    if(attachment){
+      fc=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(attachment);}).catch(()=>null);
+    }
+    sendMessage(input,fc);
+  }
+
+  function newConvo(){
+    const id=uid();
+    setConvos(prev=>[{id,title:'',messages:[],ts:Date.now()},...prev]);
+    setActiveId(id);
+    activeIdRef.current=id;
+    setSidebarOpen(false);
+  }
+
+  function deleteConvo(id){
+    setConvos(prev=>prev.filter(c=>c.id!==id));
+    if(activeId===id){const rem=convos.filter(c=>c.id!==id);if(rem.length)setActiveId(rem[0].id);else{const nid=uid();setConvos([{id:nid,title:'',messages:[],ts:Date.now()}]);setActiveId(nid);}}
+  }
+
+  function handleDrop(e){e.preventDefault();setDragOver(false);const f=e.dataTransfer.files[0];if(f)setAttachment(f);}
+  function handleFileInput(e){const f=e.target.files[0];if(f)setAttachment(f);e.target.value='';}
+
+  if(!user)return <LoginScreen onLogin={(u)=>{LS.setPin('535554');localStorage.setItem('falkor.user',JSON.stringify(u));setUser(u);}}/>;
+
+  return (
+    <div className="app">
+
+      {/* Driving mode overlay */}
+      {drivingMode && (
+        <div className="driving-overlay">
+          <button className="driving-exit" onClick={()=>setDrivingMode(false)}>✕ Exit Driving Mode</button>
+          <div className="driving-dragon">🐉</div>
+          <div className="driving-name">Falkor</div>
+          <VoiceWaveform analyserRef={analyserRef} active={voiceState==='listening'||voiceState==='speaking'} />
+          <div className="driving-status">{voiceState==='listening'?'🔴 Listening…':voiceState==='processing'?'⚙️ Thinking…':voiceState==='speaking'?'🔊 Speaking…':'Tap to speak'}</div>
+          {voiceTranscript?<div className="driving-transcript">"{voiceTranscript}"</div>:null}
+          {voiceReply?<div className="driving-reply">{voiceReply}</div>:null}
+          <button className={'driving-mic '+(voiceState==='listening'?'listening':voiceState==='speaking'?'speaking':'')} onClick={handleMicClick} disabled={voiceState==='processing'||voiceState==='speaking'}>
+            {voiceState==='listening'?'⏹':voiceState==='speaking'?'🔊':'🎤'}
+          </button>
+        </div>
+      )}
+
+      {/* Sidebar scrim */
+      {sidebarOpen && <div className="sidebar-scrim" onClick={()=>setSidebarOpen(false)}/>}
+
+      {/* Sidebar */
+      <aside className={'sidebar'+(sidebarOpen?' open':'')}>
+        <div className="sidebar-top">
+          <span className="logo-text">🐉 Falkor</span>
+          <button className="icon-btn" onClick={()=>setSidebarOpen(false)}>✕</button>
+        </div>
+        <button className="btn new-chat-btn" onClick={newConvo}>+ New Chat</button>
+        <div className="convo-list">
+          {convos.map(c=>(
+            <div key={c.id} className={'convo-item'+(c.id===activeId?' active':'')} onClick={()=>{setActiveId(c.id);setSidebarOpen(false);}}>
+              💬 {c.title||'New chat'}
+              <span className="convo-del" onClick={e=>{e.stopPropagation();deleteConvo(c.id);}}>\u2715</span>
+            </div>
+          ))}
+        </div>
+        <div className="sidebar-footer">
+          <span className="user-pill">{user?.email||user?.name||'User'}</span>
+          <button className="icon-btn" onClick={()=>setShowSettings(true)}>⚙️</button>
+        </div>
+      </aside>
+
+      {/* Main */
+      <main className="main">
+        <div className="topbar">
+          <button className="icon-btn" onClick={()=>setSidebarOpen(true)}>☰</button>
+          <span className="topbar-title">{activeConvo?.title||'Falkor'}</span>
+          <button className="icon-btn" style={{fontSize:'13px',padding:'4px 10px',background:view==='chat'?'var(--border)':'transparent'}} onClick={()=>setView('chat')}>💬</button>
+          <button className="icon-btn" style={{fontSize:'13px',padding:'4px 10px',background:view==='sport'?'var(--border)':'transparent'}} onClick={()=>setView('sport')}>🏈</button>
+          <select className="model-select" value={model} onChange={e=>{setModelS(e.target.value);LS.setModel(e.target.value);}}>
+            {MODELS.map(m=><option key={m.key} value={m.key}>{m.label}</option>)}
+          </select>
+          <div className={'ws-dot'+(wsState==='connected'?' connected':wsState==='connecting'?' connecting':'')}/>
+          <button className={'voice-btn'+(voiceEnabled?' active':'')} style={{background:'none',border:'none',cursor:'pointer',fontSize:'18px',padding:'4px 6px',borderRadius:'6px',color:voiceEnabled?'var(--accent)':'var(--muted)'}} onClick={()=>setShowVoice(true)} title="Voice">🎤</button>
+          <button className="icon-btn" style={{fontSize:'16px'}} onClick={()=>setDrivingMode(true)} title="Driving mode">🚗</button>
+          <button className="icon-btn" onClick={()=>setShowSettings(true)}>⚙️</button>
+        </div>
+
+        {view==='sport' && <SportPanel pin={LS.pin()}/>}
+
+        {view==='chat' && (
+          <>
+            {!activeConvo ? (
+              <div className="empty">
+                <div className="empty-icon">🐉</div>
+                <div className="empty-title">Hey {user?.name||'there'}!</div>
+                <div className="empty-sub">Start a conversation or ask me anything.</div>
+                <button className="btn" style={{width:'auto',padding:'10px 24px',marginTop:'8px'}} onClick={newConvo}>Start chat</button>
+              </div>
+            ) : (
+              <div className="messages">
+                {(activeConvo.messages||[]).map(m=><MessageBubble key={m.id} msg={m}/>)}
+                {typing && <TypingIndicator/>}
+                <div ref={endRef}/>
+              </div>
+            )}
+            <div className="composer">
+              {attachment && (
+                <div className="attach-row">
+                  📎 {attachment.name}
+                  <span className="attach-remove" onClick={()=>setAttachment(null)}>✕</span>
+                </div>
+              )}
+              <div className={'composer-inner'+(dragOver?' drag-over':'')} onDragOver={e=>{e.preventDefault();setDragOver(true);}} onDragLeave={()=>setDragOver(false)} onDrop={handleDrop}>
+                <textarea ref={taRef} value={input} onChange={e=>setInput(e.target.value)}
+                  onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();doSend();}}}
+                  placeholder="Message Falkor…" rows={1}
+                  onInput={e=>{e.target.style.height='auto';e.target.style.height=e.target.scrollHeight+'px';}}
+                />
+                <input id="file-input" type="file" style={{display:'none'}} onChange={handleFileInput}/>
+                <button className="icon-btn" onClick={()=>document.getElementById('file-input').click()} title="Attach">📎</button>
+                <button className={'voice-btn'+(voiceEnabled?' active':'')} style={{background:'none',border:'none',cursor:'pointer',fontSize:'18px',padding:'4px 6px',borderRadius:'6px'}} onClick={()=>setShowVoice(true)} title="Voice">🎤</button>
+                <button className="send-btn" onClick={doSend} disabled={(!input.trim()&&!attachment)||wsState!=='connected'}>➤</button>
+              </div>
+            </div>
+          </>
+        )}
+      </main>
+
+      {showSettings && <SettingsPanel onClose={()=>setShowSettings(false)} theme={theme} onThemeToggle={()=>setThemeS(t=>t==='dark'?'light':'dark')} voiceEnabled={voiceEnabled} onVoiceToggle={()=>{const v=!voiceEnabled;setVoiceEnabledS(v);LS.setVoice(v);}}/>}
+      {showVoice && <VoiceModal voiceState={voiceState} transcript={voiceTranscript} reply={voiceReply} analyserRef={analyserRef} onMicClick={handleMicClick} onClose={()=>{setShowVoice(false);stopRecording();setVoiceState('idle');}}/>}
+      <ToastContainer/>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+</script>
+</body>
+</html>
+`;
     return new Response(HTML, {
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
