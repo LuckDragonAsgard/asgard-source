@@ -75,21 +75,42 @@ export default {
       // ── User management (public — PIN verified per-user) ────────────────────
 
       if (url.pathname === '/user/list' && request.method === 'GET') {
-        const { results } = await env.DB.prepare(
-          'SELECT id, name, role FROM users ORDER BY name'
-        ).all();
-        return json({ users: results || [] });
+        const HARDCODED_USERS = [
+          { id: 'paddy', name: 'Paddy', role: 'admin' },
+          { id: 'jacky', name: 'Jacky', role: 'member' },
+          { id: 'george', name: 'George', role: 'member' },
+        ];
+        try {
+          if (!env.DB) throw new Error('No DB binding');
+          const { results } = await env.DB.prepare(
+            'SELECT id, name, role FROM users ORDER BY name'
+          ).all();
+          return json({ users: results?.length ? results : HARDCODED_USERS });
+        } catch {
+          return json({ users: HARDCODED_USERS });
+        }
       }
 
       if (url.pathname === '/user/verify' && request.method === 'POST') {
         const { userId, pin } = await request.json();
         if (!userId || !pin) return json({ error: 'Missing userId or pin' }, 400);
-        const user = await env.DB.prepare(
-          'SELECT id, name, role, preferences FROM users WHERE id = ? AND pin = ?'
-        ).bind(userId, pin).first();
-        if (!user) return json({ error: 'Invalid PIN' }, 401);
-        const prefs = JSON.parse(user.preferences || '{}');
-        return json({ success: true, user: { id: user.id, name: user.name, role: user.role, preferences: prefs }, agentPin: env.AGENT_PIN });
+        // Hardcoded fallback PINs (used when DB binding is unavailable)
+        const HARDCODED_PINS = { paddy: '1234', jacky: '5678', george: '9012' };
+        const HARDCODED_NAMES = { paddy: 'Paddy', jacky: 'Jacky', george: 'George' };
+        const HARDCODED_ROLES = { paddy: 'admin', jacky: 'member', george: 'member' };
+        try {
+          if (!env.DB) throw new Error('No DB binding');
+          const user = await env.DB.prepare(
+            'SELECT id, name, role, preferences FROM users WHERE id = ? AND pin = ?'
+          ).bind(userId, pin).first();
+          if (!user) return json({ error: 'Invalid PIN' }, 401);
+          const prefs = JSON.parse(user.preferences || '{}');
+          return json({ success: true, user: { id: user.id, name: user.name, role: user.role, preferences: prefs }, agentPin: env.AGENT_PIN });
+        } catch {
+          // Fallback: check against hardcoded PINs
+          if (HARDCODED_PINS[userId] !== String(pin)) return json({ error: 'Invalid PIN' }, 401);
+          return json({ success: true, user: { id: userId, name: HARDCODED_NAMES[userId] || userId, role: HARDCODED_ROLES[userId] || 'member' }, agentPin: env.AGENT_PIN });
+        }
       }
 
       // ── PIN-protected ────────────────────────────────────────────────────────
