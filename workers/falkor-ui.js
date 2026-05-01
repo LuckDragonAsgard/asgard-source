@@ -579,10 +579,10 @@ function SportPanel({ pin }) {
       sf('/afl/tips?year=' + YEAR + '&round=' + rnd),
       sf('/afl/comp?year=' + YEAR + '&round=' + rnd),
     ]);
-    if (l.status === 'fulfilled') setLadder(l.value);
-    if (g.status === 'fulfilled') setGames(g.value);
-    if (t.status === 'fulfilled') setTips(t.value);
-    if (c.status === 'fulfilled') setComp(c.value);
+    if (l.status === 'fulfilled') setLadder(Array.isArray(l.value) ? l.value : l.value?.ladder || []);
+    if (g.status === 'fulfilled') setGames(Array.isArray(g.value) ? g.value : g.value?.games || []);
+    if (t.status === 'fulfilled') setTips(Array.isArray(t.value) ? t.value : t.value?.tips || []);
+    if (c.status === 'fulfilled') setComp(c.value?.error ? null : c.value);
     setLoading(false);
   }
   useEffect(() => { load(); }, [rnd]);
@@ -1209,9 +1209,9 @@ function App() {
           <button className="icon-btn" onClick={() => setShowSettings(true)}>⚙️</button>
         </div>
 
-        {view === 'sport'    && <SportPanel pin={LS.pin()}/>}
+        {view === 'sport'    && <SportPanel pin={LS.agentPin() || LS.pin()}/>}
         {view === 'sites'    && <SitesPanel/>}
-        {view === 'calendar' && <CalendarPanel pin={LS.pin()}/>}
+        {view === 'calendar' && <CalendarPanel pin={LS.agentPin() || LS.pin()}/>}
 
         {view === 'chat' && (
           <>
