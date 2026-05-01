@@ -1,4 +1,8 @@
-// falkor-agent v1.8.1 — null guards + message/text field compat: Always Briefed + Auto-Memory + Action Handlers
+--85da359467fa2cefbb7068d5b030fc6e848aa21984f05475f2be2735df99
+Content-Disposition: form-data; name="worker.js"
+
+
+// falkor-agent v1.9.1 — fix wsConn→ws bug (DO 1101 crash), add WORKFLOWS_SERVICE binding
 // v1.7.0 adds:
 //   1. Live context pre-loader — fetches weather/calendar/sport/tips before first reply
 //   2. Auto-memory — every 5 turns, Haiku extracts memorable facts → falkor-brain
@@ -298,7 +302,7 @@ async function loadLiveContext(pin, aiPin) {
 
 // ── Auto-memory extractor ─────────────────────────────────────────────────────
 // Every MEMORY_EXTRACT_INTERVAL assistant turns, extract memorable facts via Haiku
-async function maybeExtractMemory(history, userId, pin, aiUrl) {
+async function maybeExtractMemory(history, userId, pin, aiPin, aiUrl) {
   // Count assistant turns
   const assistantTurns = history.filter(h => h.role === 'assistant').length;
   if (assistantTurns === 0 || assistantTurns % MEMORY_EXTRACT_INTERVAL !== 0) return;
@@ -403,7 +407,7 @@ export class FalkorAgent {
       const memory = await this.getMemory();
       const ctxTs = await this.state.storage.get('liveContextTs');
       return corsJson({
-        version: '1.8.1',
+        version: '1.9.1',
         activeSessions: this.sessions.size,
         historyLength: history.length,
         memoryKeys: Object.keys(memory).length,
@@ -582,29 +586,80 @@ export class FalkorAgent {
       productCtxStr,
     ].filter(Boolean).join('\n');
 
-    // ── 6. Call asgard-ai router ──────────────────────────────────────────────
+    // ── 6. Call asgard-ai router (streaming when ws present) ────────────
     let reply = '';
-    try {
-      const resp = await fetch(`${aiUrl}/chat/smart`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Pin': aiPin },
-        body: JSON.stringify({
-          message: text,
-          context: contextHistory,
-          system: systemPrompt,
-          model,
-          max_tokens: 2048,
-        }),
-      });
-      if (resp.ok) {
-        const data = await resp.json();
-        reply = data.reply || data.content || '';
-      } else {
-        const errBody = await resp.text().catch(() => '');
-        reply = '[AI error: ' + resp.status + (errBody ? ': ' + errBody.slice(0, 100) : '') + ']';
+    const msgId = 'msg_' + Date.now();
+
+    if (ws) {
+      // ── Streaming path: SSE → WS tokens ──────────────────────────────────
+      try {
+        const resp = await fetch(`${aiUrl}/chat/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Pin': aiPin },
+          body: JSON.stringify({
+            messages: [...contextHistory, { role: 'user', content: text }],
+            system: systemPrompt,
+            model,
+            max_tokens: 2048,
+          }),
+        });
+        if (resp.ok) {
+          const reader = resp.body.getReader();
+          const decoder = new TextDecoder();
+          let buf = '';
+          let accumulated = '';
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            const lines = buf.split('\n');
+            buf = lines.pop();
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed.startsWith('data:')) continue;
+              const raw = trimmed.slice(5).trim();
+              try {
+                const parsed = JSON.parse(raw);
+                if (parsed.t) {
+                  accumulated += parsed.t;
+                  // Broadcast token to all connected WS sessions
+                  this.broadcast({ type: 'token', msgId, text: accumulated });
+                }
+              } catch {}
+            }
+          }
+          reply = accumulated;
+        } else {
+          const errBody = await resp.text().catch(() => '');
+          reply = '[AI error: ' + resp.status + (errBody ? ': ' + errBody.slice(0, 80) : '') + ']';
+        }
+      } catch (err) {
+        reply = '[Stream error: ' + err.message + ']';
       }
-    } catch (err) {
-      reply = '[Connection error: ' + err.message + ']';
+    } else {
+      // ── Non-streaming path (REST /chat endpoint, widget, etc.) ───────────
+      try {
+        const resp = await fetch(`${aiUrl}/chat/smart`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Pin': aiPin },
+          body: JSON.stringify({
+            message: text,
+            context: contextHistory,
+            system: systemPrompt,
+            model,
+            max_tokens: 2048,
+          }),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          reply = data.reply || data.content || '';
+        } else {
+          const errBody = await resp.text().catch(() => '');
+          reply = '[AI error: ' + resp.status + (errBody ? ': ' + errBody.slice(0, 100) : '') + ']';
+        }
+      } catch (err) {
+        reply = '[Connection error: ' + err.message + ']';
+      }
     }
 
     // ── 7. Save to history ────────────────────────────────────────────────────
@@ -613,9 +668,10 @@ export class FalkorAgent {
     await this.state.storage.put('history', JSON.stringify(history.slice(-200)));
 
     // ── 8. Auto-memory extraction (every 5 turns, fire-and-forget) ────────────
-    maybeExtractMemory(history, userId, pin, aiUrl).catch(() => {});
+    maybeExtractMemory(history, userId, pin, aiPin, aiUrl).catch(() => {});
 
-    this.broadcast({ type: 'assistant_reply', text: reply, model });
+    // Final reply broadcast (UI uses msgId to finalize streaming bubble)
+    this.broadcast({ type: 'assistant_reply', msgId, text: reply, model });
     return reply;
   }
 
@@ -668,7 +724,7 @@ export default {
     }
 
     if (url.pathname === '/health') {
-      return Response.json({ status: 'ok', version: '1.8.1', worker: 'falkor-agent' });
+      return Response.json({ status: 'ok', version: '1.9.1', worker: 'falkor-agent' });
     }
 
     // ── /tasks proxy → falkor-workflows via service binding (no 522 loopback) ──
@@ -704,3 +760,6 @@ export default {
     return stub.fetch(request);
   },
 };
+
+
+--85da359467fa2cefbb7068d5b030fc6e848aa21984f05475f2be2735df99--
