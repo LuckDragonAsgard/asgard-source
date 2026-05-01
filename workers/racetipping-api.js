@@ -158,9 +158,24 @@ async function doScrapeResultsForRD(env, rdRow) {
   const TAB = "https://api.beta.tab.com.au/v1/tab-info-service/racing";
   let meetings;
   try {
-    const r = await fetch(`${TAB}/dates/${rdRow.date}/meetings?jurisdiction=NSW`, { headers: { Accept: "application/json" } });
-    if (!r.ok) return { error: r.status };
-    meetings = ((await r.json()).meetings || []).filter((m) => m.raceType === "R");
+    // Try multiple jurisdictions and merge - TAB blocks direct CF fetches sometimes
+    const jurisList = ["NSW", "VIC", "QLD", "SA", "WA"];
+    const allMeetings = [];
+    for (const jur of jurisList) {
+      try {
+        const r = await fetch(`${TAB}/dates/${rdRow.date}/meetings?jurisdiction=${jur}`, { headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0" } });
+        if (!r.ok) continue;
+        const text = await r.text();
+        if (!text.startsWith("{") && !text.startsWith("[")) continue; // skip HTML responses
+        const parsed = JSON.parse(text);
+        const rMeetings = (parsed.meetings || []).filter((m) => m.raceType === "R");
+        for (const m of rMeetings) {
+          if (!allMeetings.find((x) => x.meetingName === m.meetingName)) allMeetings.push(m);
+        }
+      } catch {}
+    }
+    meetings = allMeetings;
+    if (!meetings.length) return { error: "No meetings found from TAB API" };
   } catch (e) {
     return { error: e.message };
   }
@@ -233,9 +248,24 @@ async function doScrapeFields(env, orgId) {
   const TAB = "https://api.beta.tab.com.au/v1/tab-info-service/racing";
   let meetings;
   try {
-    const r = await fetch(`${TAB}/dates/${rdRow.date}/meetings?jurisdiction=NSW`, { headers: { Accept: "application/json" } });
-    if (!r.ok) return { error: r.status };
-    meetings = ((await r.json()).meetings || []).filter((m) => m.raceType === "R");
+    // Try multiple jurisdictions and merge - TAB blocks direct CF fetches sometimes
+    const jurisList = ["NSW", "VIC", "QLD", "SA", "WA"];
+    const allMeetings = [];
+    for (const jur of jurisList) {
+      try {
+        const r = await fetch(`${TAB}/dates/${rdRow.date}/meetings?jurisdiction=${jur}`, { headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0" } });
+        if (!r.ok) continue;
+        const text = await r.text();
+        if (!text.startsWith("{") && !text.startsWith("[")) continue; // skip HTML responses
+        const parsed = JSON.parse(text);
+        const rMeetings = (parsed.meetings || []).filter((m) => m.raceType === "R");
+        for (const m of rMeetings) {
+          if (!allMeetings.find((x) => x.meetingName === m.meetingName)) allMeetings.push(m);
+        }
+      } catch {}
+    }
+    meetings = allMeetings;
+    if (!meetings.length) return { error: "No meetings found from TAB API" };
   } catch (e) {
     return { error: e.message };
   }
@@ -262,12 +292,14 @@ async function doScrapeFields(env, orgId) {
       if (!race) continue;
       let rd;
       try {
-        const r2 = await fetch(`${TAB}/dates/${rdRow.date}/meetings/R/${enc}/races/${rn}?jurisdiction=NSW&fixedOdds=true`, { headers: { Accept: "application/json" } });
+        const r2 = await fetch(`${TAB}/dates/${rdRow.date}/meetings/R/${enc}/races/${rn}?jurisdiction=${mtg.location || "NSW"}&fixedOdds=true`, { headers: { Accept: "application/json" } });
         if (!r2.ok) {
           skip++;
           continue;
         }
-        rd = await r2.json();
+        const t2 = await r2.text();
+        if (!t2.startsWith("{") && !t2.startsWith("[")) { skip++; continue; }
+        rd = JSON.parse(t2);
       } catch (e) {
         skip++;
         continue;
