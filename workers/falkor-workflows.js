@@ -14,9 +14,11 @@
 //
 // Bindings: DB (asgard-prod), RESEND_API_KEY (secret), AGENT_PIN (secret)
 
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 const WORKER_NAME = 'falkor-workflows';
 const PUSH_URL = 'https://falkor-push.luckdragon.io';
+const SPORT_URL = 'https://falkor-sport.luckdragon.io';
+const CALENDAR_URL = 'https://falkor-calendar.luckdragon.io';
 
 // Williamstown Primary School coordinates
 const WPS_LAT = -37.8594;
@@ -28,7 +30,6 @@ const FROM_EMAIL = 'Falkor Workflows <workflows@luckdragon.io>';
 const AI_URL = 'https://asgard-ai.luckdragon.io';
 const KBT_URL = 'https://falkor-kbt.luckdragon.io';
 const BRAIN_URL = 'https://falkor-brain.luckdragon.io';
-const SPORT_URL = 'https://falkor-sport.luckdragon.io';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -234,9 +235,140 @@ async function sendPush(env, { title, body, url = 'https://falkor.luckdragon.io'
   }
 }
 
+
+// ─── Smart Proactive Rules Engine ────────────────────────────────────────────
+// Runs every 2 hours during AEST daytime. Fires push+email only once per event.
+
+async function runSmartAlerts(env) {
+  const fired = [];
+  const now = Date.now();
+  const aestHour = new Date(now).getUTCHours() + 10; // rough AEST (no DST handling needed)
+
+  // Only run during daylight hours: 6am–8pm AEST
+  const h = aestHour % 24;
+  if (h < 6 || h > 20) return { skipped: true, reason: 'outside hours', h };
+
+  // ── Rule 1: Cross country / school event in next 2 days with rain forecast ──
+  try {
+    const calResp = await fetch(CALENDAR_URL + '/week', {
+      headers: { 'X-Pin': env.AGENT_PIN }
+    }).catch(() => null);
+
+    if (calResp && calResp.ok) {
+      const calData = await calResp.json();
+      const events = calData.events || [];
+      const today = new Date(now);
+      const keywords = ['cross country', 'carnival', 'athletics', 'sports day', 'district'];
+
+      for (const evt of events) {
+        const evtDate = new Date(evt.start || evt.date);
+        const daysAway = Math.round((evtDate - today) / 86400000);
+        const name = (evt.summary || '').toLowerCase();
+        const isSchoolEvent = keywords.some(k => name.includes(k));
+
+        if (isSchoolEvent && daysAway >= 0 && daysAway <= 2) {
+          // Check weather for that day
+          const weatherResp = await fetch(
+            'https://api.open-meteo.com/v1/forecast?latitude=-37.86&longitude=144.90&daily=precipitation_probability_max&timezone=Australia%2FMelbourne&forecast_days=3'
+          ).catch(() => null);
+
+          if (weatherResp && weatherResp.ok) {
+            const wx = await weatherResp.json();
+            const rainChance = (wx.daily?.precipitation_probability_max || [])[daysAway] || 0;
+
+            if (rainChance >= 60) {
+              const alertKey = 'school_event_rain_' + evt.summary + '_' + evtDate.toDateString();
+              const alreadyFired = await checkAlertFired(env, alertKey);
+              if (!alreadyFired) {
+                const title = '⛈️ ' + (evt.summary || 'School event') + ' — rain likely!';
+                const body = daysAway === 0
+                  ? 'Today: ' + rainChance + '% chance of rain. Consider a backup plan.'
+                  : 'In ' + daysAway + ' day' + (daysAway > 1 ? 's' : '') + ': ' + rainChance + '% rain chance. Plan ahead!';
+                await sendPush(env, { title, body, url: 'https://falkor.luckdragon.io', tag: 'school-weather' });
+                await sendEmail(env, {
+                  to: PADDY_EMAIL,
+                  subject: title,
+                  html: '<p>' + body + '</p><p>Event: <strong>' + (evt.summary||'') + '</strong> on ' + evtDate.toDateString() + '</p>',
+                });
+                await markAlertFired(env, alertKey);
+                fired.push({ rule: 'school_event_rain', event: evt.summary, rain: rainChance });
+              }
+            }
+          }
+        }
+      }
+    }
+  } catch (e) { console.warn('Smart rule 1 failed:', e.message); }
+
+  // ── Rule 2: KBT event reminder (event in calendar tomorrow) ──────────────
+  try {
+    const calResp = await fetch(CALENDAR_URL + '/tomorrow', {
+      headers: { 'X-Pin': env.AGENT_PIN }
+    }).catch(() => null);
+
+    if (calResp && calResp.ok) {
+      const calData = await calResp.json();
+      const events = calData.events || [];
+      const kbtKeywords = ['kbt', 'trivia', 'kow brainer', 'quiz night'];
+
+      for (const evt of events) {
+        const name = (evt.summary || '').toLowerCase();
+        if (kbtKeywords.some(k => name.includes(k))) {
+          const alertKey = 'kbt_reminder_' + evt.summary;
+          const alreadyFired = await checkAlertFired(env, alertKey);
+          if (!alreadyFired) {
+            await sendPush(env, {
+              title: '🎮 KBT tomorrow: ' + (evt.summary || 'Trivia night'),
+              body: 'Don\'t forget to prep your trivia questions!',
+              url: 'https://falkor.luckdragon.io',
+              tag: 'kbt-reminder',
+            });
+            await markAlertFired(env, alertKey);
+            fired.push({ rule: 'kbt_reminder', event: evt.summary });
+          }
+        }
+      }
+    }
+  } catch (e) { console.warn('Smart rule 2 failed:', e.message); }
+
+  return { fired, total: fired.length };
+}
+
+async function checkAlertFired(env, key) {
+  if (!env.DB) return false;
+  try {
+    // Check smart_alert_log in falkor-push-db via API since we don't have that D1 binding
+    // Instead use a simple KV-style check via D1 asgard-prod if available
+    const row = await env.DB.prepare(
+      'SELECT id FROM falkor_smart_alerts WHERE id = ? AND fired_at > ?'
+    ).bind(key, Date.now() - 86400000 * 2).first(); // fired in last 2 days
+    return !!row;
+  } catch {
+    // Table might not exist yet — create it
+    try {
+      await env.DB.prepare(
+        'CREATE TABLE IF NOT EXISTS falkor_smart_alerts (id TEXT PRIMARY KEY, fired_at INTEGER)'
+      ).run();
+    } catch {}
+    return false;
+  }
+}
+
+async function markAlertFired(env, key) {
+  if (!env.DB) return;
+  try {
+    await env.DB.prepare(
+      'INSERT OR REPLACE INTO falkor_smart_alerts (id, fired_at) VALUES (?, ?)'
+    ).bind(key, Date.now()).run();
+  } catch {}
+}
+
 async function runScheduled(cron, env) {
   const hour = new Date().getUTCHours(); // 21 = 7am AEST (UTC+10)
   const minute = new Date().getUTCMinutes();
+
+  // Run smart proactive rules every 2 hours
+  await runSmartAlerts(env).catch(e => console.warn('smart alerts failed:', e.message));
 
   // 9pm UTC (7am AEST) → PE Weather Alert
   if (hour === 21 && minute < 15) {
@@ -297,6 +429,13 @@ export default {
         await logRun(env, workflow, null, e?.message);
         return err('Workflow failed: ' + e?.message, 500);
       }
+    }
+
+    if (path === '/smart-alerts/trigger' && method === 'POST') {
+      const pin = request.headers.get('X-Pin');
+      if (pin !== env.AGENT_PIN) return err('Unauthorized', 401);
+      const result = await runSmartAlerts(env).catch(e => ({ error: e.message }));
+      return json({ ok: true, result });
     }
 
     // Send ad-hoc email
