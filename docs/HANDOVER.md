@@ -349,3 +349,22 @@ End of handover. **PIN is `<ASK MONA — PIN provided out-of-band, not stored in
 
 ## Phase 20 (2026-05-02)
 - Phase 20 ✅ Streaming: asgard-ai normalized SSE (Groq+Anthropic→{"t":token}), falkor-agent v1.9.1 WS token broadcast, falkor-ui real-time bubble streaming
+
+
+## Phase 20-23 Complete (2026-05-02 overnight build)
+
+- Phase 20 ✅ Streaming: asgard-ai normalized SSE (Groq+Anthropic→{"t":token}), falkor-agent v1.9.1 WS token broadcast, falkor-ui real-time bubble streaming
+- Phase 21 ✅ Richer daily briefing: falkor-workflows v2.2.0 — calendar today/tomorrow, today's AFL games, AI Groq opener (Jarvis-style), better push summary
+- Phase 22 ✅ Auto conversation memory: already live — maybeExtractMemory() every 5 turns, Haiku extracts facts → falkor-brain (verified working)
+- Phase 23 ✅ Email integration: falkor-agent v1.9.2 — email_compose intent (AI-composed body via Haiku, sends via Resend), check_email intent (MS Graph ready — needs GRAPH_ACCESS_TOKEN secret)
+
+### Fleet versions post-build:
+- falkor-agent v1.9.2 (streaming + email)
+- falkor-workflows v2.2.0 (richer briefing + AI opener)
+- asgard-ai v6.4.0 (normalized SSE streaming for Groq + Anthropic)
+- falkor-ui (streaming token handler)
+
+### Next steps for Paddy:
+- Add GRAPH_ACCESS_TOKEN secret to falkor-agent to enable "check my email" (Outlook read)
+- ws.carnivaltiming.com CNAME still needed in CF DNS (ws → carnival-timing-ws.pgallivan.workers.dev)
+- GOOGLE_CAL_ICS_URL secret needed on falkor-calendar for Google Calendar events in briefing
