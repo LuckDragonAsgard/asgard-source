@@ -1,8 +1,5 @@
---85da359467fa2cefbb7068d5b030fc6e848aa21984f05475f2be2735df99
-Content-Disposition: form-data; name="worker.js"
 
-
-// falkor-agent v1.9.1 — fix wsConn→ws bug (DO 1101 crash), add WORKFLOWS_SERVICE binding
+// falkor-agent v1.9.2 — fix wsConn→ws bug (DO 1101 crash), add WORKFLOWS_SERVICE binding
 // v1.7.0 adds:
 //   1. Live context pre-loader — fetches weather/calendar/sport/tips before first reply
 //   2. Auto-memory — every 5 turns, Haiku extracts memorable facts → falkor-brain
@@ -132,9 +129,18 @@ async function callSubAgent(agentKey, action, text, pin, aiPin) {
 function detectAction(text) {
   if (!text) return null;
   const t = text.toLowerCase().trim();
-  // Email actions
+  // Email actions — self summary
   if (/\b(email me|send me|email summary|send (a )?summary|mail me)\b/.test(t))
     return { type: 'email', subject: 'Falkor summary', body: text };
+  // Email to external recipient: "email Tom about X" / "send email to Jane about Y"
+  const emailToRe = /\b(?:email|send\s+(?:an?\s+)?email|write\s+(?:an?\s+)?email|compose)\s+(?:to\s+)?([\w][\w\s.]*?)\s+(?:about|re:|regarding|saying|with subject)\s+(.+)/i;
+  const emailToMatch = t.match(emailToRe);
+  if (emailToMatch) {
+    return { type: 'email_compose', to_name: emailToMatch[1].trim(), subject_hint: emailToMatch[2].trim(), original: text };
+  }
+  // Check inbox
+  if (/\b(check\s+(?:my\s+)?emails?|read\s+(?:my\s+)?emails?|any\s+(?:new\s+)?emails?|what(?:'s|\s+is)?\s+in\s+(?:my\s+)?inbox|new\s+emails?)\b/.test(t))
+    return { type: 'check_email' };
   // Note / save actions
   if (/^(note|save|remember|log|jot)[\s:]+/.test(t) || /\b(note this|save this|log this|jot this|remember this)\b/.test(t))
     return { type: 'note', content: text.replace(/^(note|save|remember|log|jot)[\s:]+/i, '').trim() };
@@ -202,6 +208,73 @@ async function executeAction(action, userId, userCtx, pin, env) {
         });
       } catch { /* non-fatal */ }
       return `Got it — I've saved that note: "${action.content}"`;
+    }
+    case 'email_compose': {
+      // Compose and send email to an external recipient via AI + Resend
+      const resendKey = (env && env.RESEND_API_KEY) || '';
+      if (!resendKey) return 'Email unavailable — RESEND_API_KEY not set.';
+      let subject = (action.subject_hint || action.original || '').slice(0, 60);
+      let body = action.original || action.subject_hint || '';
+      try {
+        const composeResp = await fetch('https://asgard-ai.luckdragon.io/chat/smart', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Pin': '535554' },
+          body: JSON.stringify({
+            message: 'Write a brief professional email based on this: ' + action.original + '. Output ONLY valid JSON: {"subject":"...","body":"..."}',
+            model: 'haiku', max_tokens: 300,
+            system: 'Output only valid JSON with subject and body fields. Be concise and professional.',
+          }),
+        });
+        if (composeResp && composeResp.ok) {
+          const cd = await composeResp.json().catch(function() { return {}; });
+          const raw = (cd.reply || '').trim();
+          const m2 = raw.match(/\{[\s\S]*?\}/);
+          if (m2) {
+            try {
+              const composed = JSON.parse(m2[0]);
+              if (composed.subject) subject = composed.subject;
+              if (composed.body) body = composed.body;
+            } catch(pe) { /* use original */ }
+          }
+        }
+      } catch(ce) { /* compose optional */ }
+      const knownContacts = { paddy: 'pgallivan@outlook.com', me: 'pgallivan@outlook.com' };
+      const toKey = (action.to_name || '').toLowerCase().split(' ')[0];
+      const toAddr = knownContacts[toKey] || userCtx.email || 'pgallivan@outlook.com';
+      try {
+        const r = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + resendKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ from: 'Falkor <falkor@luckdragon.io>', to: [toAddr], subject: subject, text: body }),
+        });
+        const rd = await r.json().catch(function() { return {}; });
+        if (rd.id) return 'Email sent to ' + toAddr + ' — "' + subject + '" ✓';
+        return 'Email failed: ' + JSON.stringify(rd).slice(0, 100);
+      } catch(se) { return 'Email error: ' + se.message; }
+    }
+    case 'check_email': {
+      // Read Outlook inbox via Microsoft Graph API if token available
+      const graphToken = (env && (env.GRAPH_ACCESS_TOKEN || env.MS_ACCESS_TOKEN)) || '';
+      if (graphToken) {
+        try {
+          const resp = await fetch('https://graph.microsoft.com/v1.0/me/messages?$top=8&$orderby=receivedDateTime desc&$select=subject,from,receivedDateTime,isRead,bodyPreview', {
+            headers: { 'Authorization': 'Bearer ' + graphToken, 'Accept': 'application/json' },
+          });
+          if (resp.ok) {
+            const data = await resp.json().catch(function() { return {}; });
+            const msgs = data.value || [];
+            if (!msgs.length) return 'Inbox is clear.';
+            return 'Recent emails:\n' + msgs.map(function(m) {
+              const unread = m.isRead ? '' : '[unread] ';
+              const fromName = (m.from && m.from.emailAddress) ? (m.from.emailAddress.name || m.from.emailAddress.address) : 'unknown';
+              const d = new Date(m.receivedDateTime).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'Australia/Melbourne' });
+              return unread + m.subject + ' — ' + fromName + ' (' + d + ')';
+            }).join('\n');
+          }
+          if (resp.status === 401) return 'Microsoft token expired — refresh GRAPH_ACCESS_TOKEN in vault.';
+        } catch(ge) { return 'Email read error: ' + ge.message; }
+      }
+      return 'To read your Outlook inbox, add a GRAPH_ACCESS_TOKEN secret to falkor-agent. See Paddy for setup.';
     }
     case 'remind': {
       try {
@@ -407,7 +480,7 @@ export class FalkorAgent {
       const memory = await this.getMemory();
       const ctxTs = await this.state.storage.get('liveContextTs');
       return corsJson({
-        version: '1.9.1',
+        version: '1.9.2',
         activeSessions: this.sessions.size,
         historyLength: history.length,
         memoryKeys: Object.keys(memory).length,
@@ -493,15 +566,15 @@ export class FalkorAgent {
     if (action) {
       const actionReply = await executeAction(action, userId, userCtx, pin, this.env);
       if (actionReply) {
-        // If it was purely an action (note/remind/task), respond directly without AI
-        if (action.type === 'note' || action.type === 'remind' || action.type === 'task') {
+        // If it was purely an action (note/remind/task/check_email), respond directly without AI
+        if (action.type === 'note' || action.type === 'remind' || action.type === 'task' || action.type === 'check_email') {
           history.push({ role: 'user', content: text, ts: Date.now() });
           history.push({ role: 'assistant', content: actionReply, ts: Date.now() });
           await this.state.storage.put('history', JSON.stringify(history.slice(-200)));
           this.broadcast({ type: 'assistant_reply', text: actionReply, model });
           return actionReply;
         }
-        // For email, acknowledge then continue to also answer with AI
+        // For email/email_compose, acknowledge and continue to AI for natural language confirmation
         this.broadcast({ type: 'action_taken', action: action.type, message: actionReply });
       }
     }
@@ -724,7 +797,7 @@ export default {
     }
 
     if (url.pathname === '/health') {
-      return Response.json({ status: 'ok', version: '1.9.1', worker: 'falkor-agent' });
+      return Response.json({ status: 'ok', version: '1.9.2', worker: 'falkor-agent' });
     }
 
     // ── /tasks proxy → falkor-workflows via service binding (no 522 loopback) ──
@@ -760,6 +833,3 @@ export default {
     return stub.fetch(request);
   },
 };
-
-
---85da359467fa2cefbb7068d5b030fc6e848aa21984f05475f2be2735df99--
