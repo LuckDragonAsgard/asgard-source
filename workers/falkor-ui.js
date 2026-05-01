@@ -68,7 +68,7 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === '/health') {
-      return new Response(JSON.stringify({status:'ok',version:'2.1.0',worker:'falkor-ui'}), {
+      return new Response(JSON.stringify({status:'ok',version:'2.0.0',worker:'falkor-ui'}), {
         headers: {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}
       });
     }
@@ -780,95 +780,6 @@ function SitesPanel() {
   );
 }
 
-
-// ─── TasksPanel ────────────────────────────────────────────────────────────────
-function TasksPanel({ pin }) {
-  const [tasks, setTasks] = React.useState([]);
-  const [loading, setLoading] = React.useState(true);
-  const [expanded, setExpanded] = React.useState({});
-  const [newQuery, setNewQuery] = React.useState('');
-  const [creating, setCreating] = React.useState(false);
-  const [busy, setBusy] = React.useState(false);
-  const [msg, setMsg] = React.useState('');
-
-  const load = React.useCallback(() => {
-    fetch(AGENT_URL + '/tasks', { headers: { 'X-Pin': pin } })
-      .then(r => r.json()).then(d => { setTasks(d.tasks || []); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, [pin]);
-
-  React.useEffect(() => { load(); const t = setInterval(load, 6000); return () => clearInterval(t); }, [load]);
-
-  const sColor = s => s==='done'?'rgba(34,197,94,.15)':s==='running'?'rgba(99,102,241,.15)':s==='failed'?'rgba(239,68,68,.15)':'rgba(245,158,11,.15)';
-  const sFg = s => s==='done'?'#22c55e':s==='running'?'#818cf8':s==='failed'?'#ef4444':'#f59e0b';
-  const tIcon = t => ({research:'\uD83D\uDD0D',tipping_report:'\uD83C\uDFC8',venture_report:'\uD83C\uDFAF',kbt_prep:'\uD83C\uDFAE',email:'\uD83D\uDCE7'})[t]||'\u2699\uFE0F';
-
-  async function queue(e) {
-    e.preventDefault();
-    if (!newQuery.trim()) return;
-    setCreating(true);
-    try {
-      const r = await fetch(AGENT_URL + '/tasks', {
-        method:'POST', headers:{'Content-Type':'application/json','X-Pin':pin},
-        body:JSON.stringify({title:newQuery.trim(),type:'research',query:newQuery.trim()})
-      });
-      const d = await r.json();
-      if (d.ok) { setMsg('\u2705 Task #'+d.id+' queued'); setNewQuery(''); load(); }
-      else setMsg('\u274C '+(d.error||'Failed'));
-    } catch(e2) { setMsg('\u274C '+e2.message); }
-    setCreating(false); setTimeout(()=>setMsg(''),4000);
-  }
-
-  async function runNow() {
-    setBusy(true);
-    try {
-      const r = await fetch('https://falkor-workflows.luckdragon.io/tasks/run',{method:'POST',headers:{'X-Pin':pin}});
-      const d = await r.json(); const res = d.result||{};
-      setMsg(res.taskId ? '\u2705 Ran task #'+res.taskId : '\u2705 No pending tasks');
-      setTimeout(load, 1500);
-    } catch(e2) { setMsg('\u274C '+e2.message); }
-    setBusy(false); setTimeout(()=>setMsg(''),5000);
-  }
-
-  const pending = tasks.filter(t=>t.status==='pending').length;
-  const running = tasks.filter(t=>t.status==='running').length;
-
-  return h('div',{style:{flex:1,overflow:'auto',padding:'16px 20px'}},
-    h('div',{style:{display:'flex',alignItems:'center',gap:'10px',marginBottom:'16px',flexWrap:'wrap'}},
-      h('span',{style:{fontSize:'18px',fontWeight:800}},'\uD83D\uDCCB Tasks'),
-      pending>0 && h('span',{style:{fontSize:'12px',background:'rgba(245,158,11,.15)',color:'#f59e0b',padding:'2px 8px',borderRadius:'20px',fontWeight:600}},pending+' pending'),
-      running>0 && h('span',{style:{fontSize:'12px',background:'rgba(99,102,241,.15)',color:'#818cf8',padding:'2px 8px',borderRadius:'20px',fontWeight:600}},'\u26A1 '+running+' running'),
-      h('button',{onClick:runNow,disabled:busy,style:{marginLeft:'auto',padding:'6px 14px',borderRadius:'8px',border:'none',background:'rgba(108,99,255,.2)',color:'var(--accent2)',cursor:'pointer',fontSize:'13px',fontWeight:600,opacity:busy?.6:1}}, busy?'\u23F3 Running\u2026':'\u25B6 Run now')
-    ),
-    h('form',{onSubmit:queue,style:{display:'flex',gap:'8px',marginBottom:'12px'}},
-      h('input',{value:newQuery,onChange:e=>setNewQuery(e.target.value),placeholder:'Queue a research task\u2026 e.g. Carlton 2026 form guide',style:{flex:1,padding:'9px 14px',borderRadius:'10px',border:'1px solid var(--border)',background:'var(--input)',color:'var(--fg)',fontSize:'13px',outline:'none'}}),
-      h('button',{type:'submit',disabled:creating||!newQuery.trim(),style:{padding:'9px 18px',borderRadius:'10px',border:'none',background:'var(--accent)',color:'#fff',cursor:'pointer',fontSize:'13px',fontWeight:600,opacity:(creating||!newQuery.trim())?.5:1}}, creating?'\u2026':'+ Queue')
-    ),
-    msg && h('div',{style:{marginBottom:'12px',fontSize:'13px',color:msg.startsWith('\u2705')?'#22c55e':'#ef4444',fontWeight:500}},msg),
-    loading && h('div',{style:{color:'var(--muted)',textAlign:'center',padding:'40px',fontSize:'14px'}},'Loading tasks\u2026'),
-    !loading && tasks.length===0 && h('div',{style:{textAlign:'center',padding:'60px 20px',color:'var(--muted)'}},
-      h('div',{style:{fontSize:'36px',marginBottom:'12px'}},'\uD83D\uDCCB'),
-      h('div',{style:{fontSize:'14px'}},'No tasks yet.'),
-      h('div',{style:{fontSize:'13px',marginTop:'6px'}},'Type "research X" in chat or queue one above.')
-    ),
-    h('div',{style:{display:'flex',flexDirection:'column',gap:'8px'}},
-      tasks.map(t =>
-        h('div',{key:t.id,style:{background:'var(--panel)',borderRadius:'12px',padding:'12px 16px',border:'1px solid var(--border)',cursor:'pointer'},onClick:()=>setExpanded(ex=>({...ex,[t.id]:!ex[t.id]}))},
-          h('div',{style:{display:'flex',alignItems:'center',gap:'8px',flexWrap:'wrap'}},
-            h('span',{style:{fontSize:'15px'}},tIcon(t.type)),
-            h('span',{style:{fontWeight:600,fontSize:'13px',flex:1}},t.title),
-            h('span',{style:{fontSize:'11px',padding:'2px 8px',borderRadius:'20px',fontWeight:600,background:sColor(t.status),color:sFg(t.status)}},t.status),
-            t.completed_at && h('span',{style:{fontSize:'11px',color:'var(--muted)'}},new Date(t.completed_at).toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit',hour12:true})),
-            h('span',{style:{fontSize:'12px',color:'var(--muted)'}},expanded[t.id]?'\u25B2':'\u25BC')
-          ),
-          expanded[t.id] && t.result && h('div',{style:{marginTop:'10px',padding:'10px 12px',background:'var(--bg)',borderRadius:'8px',fontSize:'12px',color:'var(--fg)',lineHeight:'1.6',whiteSpace:'pre-wrap',maxHeight:'280px',overflowY:'auto'}},t.result),
-          expanded[t.id] && !t.result && h('div',{style:{marginTop:'8px',fontSize:'12px',color:'var(--muted)',fontStyle:'italic'}},'No result yet\u2026')
-        )
-      )
-    )
-  );
-}
-
 // ─── CalendarPanel ────────────────────────────────────────────────────────────
 function CalendarPanel({ pin }) {
   const [events, setEvents] = useState([]);
@@ -1186,7 +1097,7 @@ function App() {
     const m = { id:uid(), role:'user', content:text, ts:Date.now() };
     setConvos(prev => prev.map(c => c.id === cid ? { ...c, messages:[...(c.messages||[]), m], title:c.title||text.slice(0,40) } : c));
     setInput(''); setAttachment(null); setTyping(true);
-    wsRef.current.send(JSON.stringify({ type:'chat', content:text, model, userId:LS.userId(), ...(fileContent ? {file:fileContent} : {}) }));
+    wsRef.current.send(JSON.stringify({ type:'chat', text:text, content:text, model, userId:LS.userId(), ...(fileContent ? {file:fileContent} : {}) }));
   }
 
   async function doSend() {
@@ -1285,7 +1196,6 @@ function App() {
           <button className={'nav-btn'+(view==='sport'?' active':'')} onClick={() => setView('sport')}>🏈</button>
           <button className={'nav-btn'+(view==='calendar'?' active':'')} onClick={() => setView('calendar')}>📅</button>
           <button className={'nav-btn'+(view==='sites'?' active':'')} onClick={() => setView('sites')}>🌐</button>
-          <button className={'nav-btn'+(view==='tasks'?' active':'')} onClick={() => setView('tasks')}>📋</button>
           <div className="nav-sep"/>
 
           <select className="model-select" value={model} onChange={e => { setModelS(e.target.value); LS.setModel(e.target.value); }}>
@@ -1301,7 +1211,6 @@ function App() {
 
         {view === 'sport'    && <SportPanel pin={LS.agentPin() || LS.pin()}/>}
         {view === 'sites'    && <SitesPanel/>}
-        {view === 'tasks'    && <TasksPanel pin={LS.agentPin() || LS.pin()}/>}
         {view === 'calendar' && <CalendarPanel pin={LS.agentPin() || LS.pin()}/>}
 
         {view === 'chat' && (
