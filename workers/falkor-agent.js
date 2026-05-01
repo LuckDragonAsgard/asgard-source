@@ -631,7 +631,7 @@ export default {
     }
 
     if (url.pathname === '/health') {
-      return Response.json({ status: 'ok', version: '1.7.0', worker: 'falkor-agent' });
+      return Response.json({ status: 'ok', version: '1.7.2', worker: 'falkor-agent' });
     }
 
     const userId = request.headers.get('X-User-Id') || url.searchParams.get('uid') || 'paddy';
