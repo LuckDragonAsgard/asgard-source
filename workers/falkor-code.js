@@ -4,8 +4,9 @@
 // v1.2.1: Fixed encoding bug + skip_auto_commit to prevent webhook→deploy→commit loop
 // v1.3.0: Extended fleet to all ventures (CT, SSP, SC) + email alerts + /ventures endpoint
 
-const VERSION = '1.3.0';
+const VERSION = '1.4.0';
 const VAULT_URL = 'https://asgard-vault.pgallivan.workers.dev';
+const PUSH_URL = 'https://falkor-push.luckdragon.io';
 const GITHUB_REPO = 'LuckDragonAsgard/asgard-source';
 const DEPLOY_URL = 'https://asgard-tools.luckdragon.io/admin/deploy';
 const WORKFLOWS_URL = 'https://falkor-workflows.luckdragon.io';
@@ -43,6 +44,8 @@ const FLEET = [
   { name: 'falkor-workflows', url: 'https://falkor-workflows.luckdragon.io', path: 'workers/falkor-workflows.js', critical: false, autoHeal: true,  group: 'falkor' },
   { name: 'falkor-school',    url: 'https://falkor-school.luckdragon.io',    path: 'workers/falkor-school.js',    critical: false, autoHeal: true,  group: 'falkor' },
   { name: 'falkor-web',       url: 'https://falkor-web.luckdragon.io',       path: 'workers/falkor-web.js',       critical: false, autoHeal: true,  group: 'falkor' },
+  { name: 'falkor-calendar', url: 'https://falkor-calendar.luckdragon.io', path: 'workers/falkor-calendar.js', critical: false, autoHeal: true,  group: 'falkor' },
+  { name: 'falkor-push',     url: 'https://falkor-push.luckdragon.io',     path: 'workers/falkor-push.js',     critical: false, autoHeal: true,  group: 'falkor' },
   { name: 'falkor-sport',     url: 'https://falkor-sport.luckdragon.io',     path: 'workers/falkor-sport.js',     critical: false, autoHeal: true,  group: 'falkor' },
   { name: 'falkor-ui',        url: 'https://falkor.luckdragon.io',           path: 'workers/falkor-ui.js',        critical: true,  autoHeal: true,  group: 'falkor' },
   { name: 'asgard-ai',        url: 'https://asgard-ai.luckdragon.io',        path: 'workers/asgard-ai.js',        critical: true,  autoHeal: true,  group: 'falkor' },
@@ -85,11 +88,20 @@ async function getSecret(env, key) {
 }
 
 // ── Email Alert ───────────────────────────────────────────────────────────────
-async function sendAlert(subject, html) {
+async function sendAlert(subject, html, env, pushPayload = null) {
+  if (pushPayload && env && PUSH_URL) {
+    try {
+      await fetch(PUSH_URL + '/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Pin': env.AGENT_PIN },
+        body: JSON.stringify(pushPayload),
+      });
+    } catch {}
+  }
   try {
     await fetch(`${WORKFLOWS_URL}/email`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Pin': '535554' },
+      headers: { 'Content-Type': 'application/json', 'X-Pin': env.AGENT_PIN },
       body: JSON.stringify({ to: ALERT_EMAIL, subject, html }),
     });
   } catch {}
@@ -223,7 +235,9 @@ async function selfHeal(env) {
         if (worker.critical) {
           await sendAlert(
             `🚨 Falkor: ${worker.name} down & auto-heal FAILED`,
-            `<p>Worker <strong>${worker.name}</strong> is down and auto-heal failed.</p><p>Error: ${worker.error}</p><p>Group: ${worker.group}</p><p>Manual fix needed. Check: <a href="${worker.url}">${worker.url}</a></p>`
+            `<p>Worker <strong>${worker.name}</strong> is down and auto-heal failed.</p><p>Error: ${worker.error}</p><p>Group: ${worker.group}</p><p>Manual fix needed. Check: <a href="${worker.url}">${worker.url}</a></p>`,
+            env,
+            { title: '🚨 ' + worker.name + ' is down', body: 'Auto-heal failed — manual fix needed.', url: 'https://falkor-dashboard.luckdragon.io', tag: 'fleet-alert' }
           );
         }
       }
