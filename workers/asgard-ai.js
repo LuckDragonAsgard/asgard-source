@@ -1,4 +1,7 @@
-// asgard-ai v5.7.2-stopgap-v11-tools: multi-provider (Anthropic/OpenAI/Gemini) + DALL-E + vision
+--06074e89982f2cc4b8570192d2a42a5e4dcd808ddd94a05c76b926ef9320
+Content-Disposition: form-data; name="worker.js"
+
+// asgard-ai v5.8.0-stream: multi-provider (Anthropic/OpenAI/Groq) streaming SSE, normalized tokens
 const VERSION = '6.4.0';
 const WORKER_NAME = "asgard-ai";
 
@@ -851,24 +854,85 @@ async function handleChatSmart(request, env) {
 
 async function handleChatStream(request, env) {
   const body = await request.json().catch(() => ({}));
-  const message = (body.message || "").toString();
-  if (!message) return err("message required", 400);
+
+  // Accept pre-built messages array (from falkor-agent) or legacy {message, history} format
+  let messages;
+  const system = body.system || null;
+  const max_tokens = body.max_tokens || 2048;
+
+  if (Array.isArray(body.messages) && body.messages.length > 0) {
+    messages = body.messages;
+  } else {
+    const message = (body.message || body.text || "").toString();
+    if (!message) return err("message required", 400);
+    const history = Array.isArray(body.history) ? body.history : [];
+    messages = [...history, { role: "user", content: message }];
+  }
+
   const uid = body.uid || request.headers.get("X-User-Id") || "paddy";
   const sid = body.conversation_id || body.sid || request.headers.get("X-Session-Id") || null;
-  const modelKey = body.model || quickRoute(message);
+  const modelKey = body.model || "groq-fast";
   const resolved = resolveModel(modelKey);
-  const history = Array.isArray(body.history) ? body.history : [];
-  const messages = [...history, { role: "user", content: message }];
-  // Only Anthropic streaming is implemented (most reliable SSE passthrough)
-  if (resolved.provider !== "anthropic") {
-    return err("streaming only supported for Anthropic models in this version (got " + resolved.provider + ")", 400);
-  }
-  const upstream = await callAnthropic(env, { model: resolved.id, messages, max_tokens: body.max_tokens || 1024, stream: true });
-  if (!upstream.ok) { const t = await upstream.text(); return err("anthropic " + upstream.status + ": " + t.slice(0, 300), 502); }
-  const loggedBody = teeStreamForSpendLog(upstream.body, env, {
-    provider: "anthropic", model: resolved.id, endpoint: "chat_stream", uid, sid,
-  });
-  return new Response(loggedBody, {
+
+  // Normalize any provider's SSE to: data: {"t":"<token>"}\n\n
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const enc = new TextEncoder();
+
+  const writeToken = async (text) => {
+    if (!text) return;
+    await writer.write(enc.encode("data: " + JSON.stringify({ t: text }) + "\n\n"));
+  };
+
+  const parseSseStream = async (upstream, extractToken) => {
+    const reader = upstream.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split("\n");
+      buf = lines.pop();
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) continue;
+        const raw = trimmed.slice(5).trim();
+        if (raw === "[DONE]") continue;
+        try {
+          const parsed = JSON.parse(raw);
+          const token = extractToken(parsed);
+          if (token) await writeToken(token);
+        } catch {}
+      }
+    }
+  };
+
+  (async () => {
+    try {
+      if (resolved.provider === "groq") {
+        const upstream = await callGroq(env, { model: resolved.id, messages, system, max_tokens, stream: true });
+        if (!upstream.ok) { await writeToken("[AI error: " + upstream.status + "]"); return; }
+        // OpenAI-compatible SSE: choices[0].delta.content
+        await parseSseStream(upstream, p => p?.choices?.[0]?.delta?.content);
+      } else if (resolved.provider === "openai") {
+        const upstream = await callOpenAI(env, { model: resolved.id, messages, system, max_tokens, stream: true });
+        if (!upstream.ok) { await writeToken("[AI error: " + upstream.status + "]"); return; }
+        await parseSseStream(upstream, p => p?.choices?.[0]?.delta?.content);
+      } else {
+        // Anthropic: content_block_delta events
+        const upstream = await callAnthropic(env, { model: resolved.id, messages, system: system || SYSTEM_PROMPT, max_tokens, stream: true });
+        if (!upstream.ok) { const t = await upstream.text(); await writeToken("[AI error: " + upstream.status + "]"); return; }
+        await parseSseStream(upstream, p => (p?.type === "content_block_delta" && p?.delta?.type === "text_delta") ? p.delta.text : null);
+      }
+    } catch (e) {
+      await writeToken("[stream error: " + (e.message || String(e)) + "]");
+    } finally {
+      await writer.close().catch(() => {});
+    }
+  })();
+
+  return new Response(readable, {
     status: 200,
     headers: { ...CORS, "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" },
   });
@@ -2918,3 +2982,4 @@ export default {
     }
   },
 };
+--06074e89982f2cc4b8570192d2a42a5e4dcd808ddd94a05c76b926ef9320--
