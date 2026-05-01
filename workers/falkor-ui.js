@@ -473,7 +473,7 @@ function UserSelectScreen({ onLogin }) {
         body: JSON.stringify({ userId: selected.id, pin }),
       });
       const d = await r.json();
-      if (d.success) { if (d.agentPin) LS.setAgentPin(d.agentPin); onLogin(d.user); }
+      if (d.success) { LS.setPin(pin); if (d.agentPin) LS.setAgentPin(d.agentPin); onLogin(d.user); }
       else { setError('Wrong PIN. Try again.'); setPinVal(''); }
     } catch { setError('Connection error. Try again.'); }
     setLoading(false);
@@ -958,7 +958,7 @@ function App() {
 
   // ── WebSocket ──
   const connectWS = useCallback(() => {
-    if (!user || !LS.pin()) return;
+    if (!user || (!LS.pin() && !LS.agentPin())) return;
     if (wsRef.current && wsRef.current.readyState < 2) return;
     setWsState('connecting');
     const ws = new WebSocket(AGENT_URL.replace('https://','wss://') + '/?pin=' + (LS.agentPin() || LS.pin()));
