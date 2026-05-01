@@ -225,6 +225,8 @@ const AGENT_URL = 'https://falkor-agent.luckdragon.io';
 const SPORT_URL = 'https://falkor-sport.luckdragon.io';
 const AUTH_URL  = 'https://asgard.luckdragon.io';
 const AI_URL    = 'https://asgard-ai.luckdragon.io';
+const USERS_URL = 'https://falkor-push.luckdragon.io';
+const CALENDAR_URL = 'https://falkor-calendar.luckdragon.io';
 const MODELS = [
   { key: 'groq-fast',  label: '\u26a1 Groq Fast' },
   { key: 'groq',       label: '\ud83e\udde0 Groq 70B' },
@@ -243,6 +245,9 @@ const LS = {
   setTheme: v => localStorage.setItem('falkor.theme', v),
   voice:  () => localStorage.getItem('falkor.voice') !== 'off',
   setVoice: v => localStorage.setItem('falkor.voice', v ? 'on' : 'off'),
+  agentPin:    () => localStorage.getItem('falkor.agentPin') || '',
+  setAgentPin: v  => localStorage.setItem('falkor.agentPin', v),
+  userId:      () => { try { return JSON.parse(localStorage.getItem('falkor.user') || '{}').id || ''; } catch { return ''; } },
 };
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
 function renderMD(text) {
@@ -739,7 +744,7 @@ function App(){
       const t=Array.from(e.results).slice(-1)[0]?.[0]?.transcript?.toLowerCase()||'';
       if(t.includes('hey falkor')&&!showVoiceRef.current&&!drivingModeRef.current){
         setShowVoice(true);
-        toast('🐉 Hey! I\'m listening…');
+        toast("🐉 Hey! I'm listening…");
       }
     };
     recog.onerror=()=>{};
@@ -923,10 +928,10 @@ function App(){
         </div>
       )}
 
-      {/* Sidebar scrim */
+      {/* Sidebar scrim */}
       {sidebarOpen && <div className="sidebar-scrim" onClick={()=>setSidebarOpen(false)}/>}
 
-      {/* Sidebar */
+      {/* Sidebar */}
       <aside className={'sidebar'+(sidebarOpen?' open':'')}>
         <div className="sidebar-top">
           <span className="logo-text">🐉 Falkor</span>
@@ -947,7 +952,7 @@ function App(){
         </div>
       </aside>
 
-      {/* Main */
+      {/* Main */}
       <main className="main">
         <div className="topbar">
           <button className="icon-btn" onClick={()=>setSidebarOpen(true)}>☰</button>
@@ -1071,7 +1076,7 @@ async function togglePush() {
       body: JSON.stringify({ endpoint: sub.endpoint, keys: { p256dh, auth }, deviceId })
     });
     if (btn) { btn.style.color = 'var(--accent)'; btn.title = 'Notifications ON (click to disable)'; }
-    new Notification('Falkor notifications enabled!', { body: 'You\'ll get push alerts for daily briefings, weather, and fleet issues.' });
+    new Notification('Falkor notifications enabled!', { body: "You'll get push alerts for daily briefings, weather, and fleet issues." });
   } catch(e) { console.error('Push subscribe failed:', e); alert('Push subscription failed: ' + e.message); }
 }
 
