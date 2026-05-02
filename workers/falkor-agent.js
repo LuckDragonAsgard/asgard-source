@@ -1,5 +1,5 @@
 
-// falkor-agent v1.9.2 — fix wsConn→ws bug (DO 1101 crash), add WORKFLOWS_SERVICE binding
+// falkor-agent v2.4.0 — Phase 58 vision endpoint, NRL context, no-emoji, Aeneas profile
 // v1.7.0 adds:
 //   1. Live context pre-loader — fetches weather/calendar/sport/tips before first reply
 //   2. Auto-memory — every 5 turns, Haiku extracts memorable facts → falkor-brain
@@ -98,7 +98,7 @@ const AGENT_MODEL_OVERRIDES = { sport: 'haiku', kbt: 'haiku', web: 'haiku' };
 function routeIntent(text) {
   if (!text) return null;
   const t = text.toLowerCase();
-  if (/\b(afl|footy|football|ladder|tip|tipping|squiggle|racing|horse|race|round|score|fixture|essendon|collingwood|hawks|bombers|cats|demons|carlton|richmond|western bulldogs|fremantle|geelong|hawthorn|melbourne|port adelaide|gold coast|gws|brisbane|sydney|west coast|st kilda|north melbourne|adelaide)\b/.test(t))
+  if (/\b(afl|footy|football|ladder|tip|tipping|squiggle|racing|horse|race|round|score|fixture|essendon|collingwood|hawks|bombers|cats|demons|carlton|richmond|western bulldogs|fremantle|geelong|hawthorn|melbourne|port adelaide|gold coast|gws|brisbane|sydney|west coast|st kilda|north melbourne|adelaide|nrl|rugby league|panthers|penrith|warriors|roosters|rabbitohs|broncos|bulldogs|sharks|tigers|raiders|cowboys|sea eagles|eels|storm|titans|knights|dragons|rabbitohs|dolphins)\b/.test(t))
     return { agent: 'sport', action: 'summary' };
   if (/\b(trivia|kbt|kow|brainer|quiz|question|pub quiz|game|host|players|leaderboard|event tonight|next event)\b/.test(t))
     return { agent: 'kbt', action: 'query' };
@@ -355,11 +355,12 @@ async function loadLiveContext(pin, aiPin) {
 
   const safe = (p) => Promise.race([p, timeout(4000)]).catch(() => null);
 
-  const [weather, calToday, calTomorrow, sport] = await Promise.all([
+  const [weather, calToday, calTomorrow, sport, nrlLadder] = await Promise.all([
     safe(fetch(`${WEATHER_URL}/weather?lat=${WPS_LAT}&lon=${WPS_LON}`, { headers: { 'X-Pin': aiPin } }).then(r => r.ok ? r.json() : null)),
     safe(fetch(`${CALENDAR_URL}/today`,    { headers: { 'X-Pin': pin } }).then(r => r.ok ? r.json() : null)),
     safe(fetch(`${CALENDAR_URL}/tomorrow`, { headers: { 'X-Pin': pin } }).then(r => r.ok ? r.json() : null)),
     safe(fetch(`${SPORT_URL}/summary`,     { headers: { 'X-Pin': pin } }).then(r => r.ok ? r.json() : null)),
+    safe(fetch(`${SPORT_URL}/nrl/ladder`,  { headers: { 'X-Pin': pin } }).then(r => r.ok ? r.json() : null)),
   ]);
 
   const lines = ['=== LIVE CONTEXT (fetched now) ==='];
@@ -393,6 +394,13 @@ async function loadLiveContext(pin, aiPin) {
     }
     if (sport.round) lines.push(`AFL ROUND: ${JSON.stringify(sport.round).slice(0, 120)}`);
     if (sport.tips_leader) lines.push(`FOOTY TIPS LEADER: ${sport.tips_leader}`);
+  }
+
+  // NRL
+  if (nrlLadder && nrlLadder.ladder) {
+    const nrlTop3 = (nrlLadder.ladder || []).slice(0, 3).map(t => t.team || t.name).filter(Boolean).join(', ');
+    if (nrlLadder.season) lines.push('NRL SEASON: ' + nrlLadder.season);
+    if (nrlTop3) lines.push('NRL LADDER TOP 3: ' + nrlTop3);
   }
 
   lines.push('=== END LIVE CONTEXT ===');
@@ -509,7 +517,7 @@ export class FalkorAgent {
       const memory = await this.getMemory();
       const ctxTs = await this.state.storage.get('liveContextTs');
       return corsJson({
-        version: '2.1.0',
+        version: '2.4.0',
         activeSessions: this.sessions.size,
         historyLength: history.length,
         memoryKeys: Object.keys(memory).length,
@@ -706,6 +714,7 @@ export class FalkorAgent {
       `- When you can ACT (send email, set reminder, check scores, run task) — do it and confirm. Don't just explain how.`,
       `- Scan the live context for anything ${userCtx.name} cares about but hasn't asked. Worth mentioning: Essendon results, upcoming tipped horses, weather at WPS school.`,
       `- No bullet points in conversational replies. Use them only for actual lists or multi-step instructions.`,
+      `- No emojis. Plain text only — no symbols, icons, or emoji in any reply.`,
       `- Match energy: short question → short answer. Complex task → structured reply.`,
       `- Web search results in context (## Web Search Results)? Use them. Never say you can't search.`,
       `## What ${userCtx.name} follows:`,
@@ -854,7 +863,7 @@ export default {
     }
 
     if (url.pathname === '/health') {
-      return Response.json({ status: 'ok', version: '2.1.0', worker: 'falkor-agent' });
+      return Response.json({ status: 'ok', version: '2.4.0', worker: 'falkor-agent' });
     }
 
     // ── /tasks proxy → falkor-workflows via service binding (no 522 loopback) ──
@@ -881,6 +890,32 @@ export default {
         return new Response(JSON.stringify({ ok: false, error: e.message }), {
           status: 502, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
         });
+      }
+    }
+
+
+    // ── /vision — image analysis via asgard-ai (no DO, stateless) ─────────────
+    if (url.pathname === '/vision' && request.method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      const aiPin = env.AI_WORKER_PIN || env.AGENT_PIN || '';
+      const aiUrl = env.AI_WORKER_URL || 'https://asgard-ai.luckdragon.io';
+      try {
+        const vRes = await fetch(`${aiUrl}/chat/vision`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Pin': aiPin },
+          body: JSON.stringify({
+            image_base64: body.image_b64 || body.image_base64,
+            image_url: body.image_url,
+            image_mime: body.mime_type || body.image_mime || 'image/jpeg',
+            message: body.prompt || body.message || 'Describe this image clearly and concisely.',
+            model: body.model || 'haiku',
+            uid: body.userId || 'paddy',
+          })
+        });
+        const vd = await vRes.json().catch(() => ({}));
+        return corsJson(vd, vRes.status);
+      } catch (e) {
+        return corsJson({ ok: false, error: e.message }, 502);
       }
     }
 
