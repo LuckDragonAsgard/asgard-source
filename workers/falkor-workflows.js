@@ -1,5 +1,5 @@
 // falkor-workflows v2.9.0 — Scheduled workflows + Jarvis-level autonomy
-// Cron: 0 21 * * * (7am AEST), 30 21 * * * (7:30am AEST), 0 */2 * * * (every 2h), */15 * * * * (every 15min)
+// Cron: 0 21 * * * (7am AEST), 30 21 * * * (7:30am AEST), * * * * * (every 1min — reactive alerts)
 //
 // Scheduled jobs:
 //   1. PE Weather Alert (7:00am AEST) — Williamstown Primary conditions
@@ -15,7 +15,7 @@
 //
 // Bindings: DB (asgard-prod), PROJECTS_DB (project-hub-db), RESEND_API_KEY, AGENT_PIN, WEB_SERVICE (falkor-web)
 
-const VERSION = '2.9.0';
+const VERSION = '3.0.0';
 const WORKER_NAME = 'falkor-workflows';
 const PUSH_URL = 'https://falkor-push.luckdragon.io';
 const SPORT_URL = 'https://falkor-sport.luckdragon.io';
@@ -309,7 +309,39 @@ async function runDailySummary(env) {
 }
 
 // ─── Smart Proactive Rules Engine v2 ─────────────────────────────────────────
+
+// ── Paddy state detector (AEST mode awareness) ───────────────────────────────
+function getPaddyState() {
+  const nowAEST = new Date(Date.now() + 10 * 60 * 60 * 1000);
+  const h = nowAEST.getUTCHours();
+  const d = nowAEST.getUTCDay(); // 0=Sun, 1=Mon, ... 5=Fri, 6=Sat
+  const isWeekday = d >= 1 && d <= 5;
+  if (h >= 23 || h < 6)  return { mode: 'sleep',   quiet: true,  label: 'asleep'                    };
+  if (isWeekday && h >= 8  && h < 15) return { mode: 'school',  quiet: true,  label: 'at school (WPS)'          };
+  if (isWeekday && h >= 7  && h < 8)  return { mode: 'commute', quiet: false, label: 'commuting to school'       };
+  if (isWeekday && h >= 15 && h < 16) return { mode: 'commute', quiet: false, label: 'leaving school'            };
+  return { mode: 'free', quiet: false, label: 'free' };
+}
+
+// ── Send Telegram message (fires when TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID set) ─
+async function sendTelegram(env, text) {
+  const token  = env.TELEGRAM_BOT_TOKEN;
+  const chatId = env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return false;
+  try {
+    const r = await fetch(\`https://api.telegram.org/bot\${token}/sendMessage\`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' }),
+    });
+    return r.ok;
+  } catch { return false; }
+}
+
 async function runSmartAlerts(env) {
+  const paddyState = getPaddyState();
+  // Never alert during sleep hours
+  if (paddyState.mode === 'sleep') return { fired: [], total: 0, skipped: 'sleep' };
   const fired = [];
   const now = Date.now();
   const utcHour = new Date(now).getUTCHours();
@@ -561,6 +593,12 @@ async function runSmartAlerts(env) {
     }
   } catch (e) { console.warn('Calendar 15min rule:', e.message); }
 
+  // Send any fired alerts via Telegram too (if configured)
+  if (fired.length > 0 && (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID)) {
+    for (const alert of fired) {
+      await sendTelegram(env, '🔔 ' + alert).catch(function() {});
+    }
+  }
   return { fired, total: fired.length };
 }
 
