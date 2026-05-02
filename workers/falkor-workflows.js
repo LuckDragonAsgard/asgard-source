@@ -1,5 +1,5 @@
-// falkor-workflows v2.2.0 — Scheduled workflows + Jarvis-level autonomy
-// Cron: 0 21 * * * (7am AEST), 30 21 * * * (7:30am AEST), 0 */2 * * * (every 2h)
+// falkor-workflows v2.9.0 — Scheduled workflows + Jarvis-level autonomy
+// Cron: 0 21 * * * (7am AEST), 30 21 * * * (7:30am AEST), 0 */2 * * * (every 2h), */15 * * * * (every 15min)
 //
 // Scheduled jobs:
 //   1. PE Weather Alert (7:00am AEST) — Williamstown Primary conditions
@@ -15,7 +15,7 @@
 //
 // Bindings: DB (asgard-prod), PROJECTS_DB (project-hub-db), RESEND_API_KEY, AGENT_PIN, WEB_SERVICE (falkor-web)
 
-const VERSION = '2.5.0';
+const VERSION = '2.9.0';
 const WORKER_NAME = 'falkor-workflows';
 const PUSH_URL = 'https://falkor-push.luckdragon.io';
 const SPORT_URL = 'https://falkor-sport.luckdragon.io';
@@ -484,6 +484,82 @@ async function runSmartAlerts(env) {
       }
     } catch (e) { console.warn('Rule 6 failed:', e.message); }
   }
+
+
+  // ── Rule: Essendon kickoff alert (push 10–35 mins before game) ───────────
+  try {
+    var essenResp = await fetch(SPORT_URL + '/afl/games', { headers: { 'X-Pin': env.AGENT_PIN } }).catch(() => null);
+    if (essenResp && essenResp.ok) {
+      var essenData = await essenResp.json();
+      var gamesArr = Array.isArray(essenData) ? essenData : (essenData.games || []);
+      for (var gi = 0; gi < gamesArr.length; gi++) {
+        var g = gamesArr[gi];
+        var ht = (g.hteam || '').toLowerCase();
+        var at = (g.ateam || '').toLowerCase();
+        if (ht.includes('essendon') || at.includes('essendon') || ht.includes('bombers') || at.includes('bombers')) {
+          var kickoffMs = g.date ? new Date(g.date).getTime() : (g.localtime ? new Date(g.localtime).getTime() : 0);
+          if (kickoffMs > 0) {
+            var minsAway = (kickoffMs - Date.now()) / 60000;
+            if (minsAway >= 10 && minsAway <= 35) {
+              var kickKey = 'essendon_kickoff_' + (g.id || ht + at);
+              if (!(await checkAlertFired(env, kickKey, 3 * 3600 * 1000))) {
+                var opp = (ht.includes('essendon') || ht.includes('bombers')) ? g.ateam : g.hteam;
+                await sendPush(env, {
+                  title: '🔴 Bombers about to kick off!',
+                  body: 'Essendon vs ' + opp + ' — ' + Math.round(minsAway) + ' mins away. Go Bombers.',
+                  tag: 'afl-kickoff', url: 'https://falkor.luckdragon.io',
+                });
+                await markAlertFired(env, kickKey);
+                fired.push({ rule: 'essendon_kickoff', game: g.hteam + ' v ' + g.ateam });
+              }
+            }
+          }
+        }
+      }
+    }
+  } catch (e) { console.warn('Essendon kickoff rule:', e.message); }
+
+  // ── Rule: Footy tips deadline (Thursday 7–8pm AEST = 9–10am UTC) ─────────
+  try {
+    if (dayOfWeek === 4 && utcHour >= 9 && utcHour <= 10) {
+      var tipKey = 'footy_tip_deadline_' + new Date(now).toDateString();
+      if (!(await checkAlertFired(env, tipKey, 4 * 3600 * 1000))) {
+        await sendPush(env, {
+          title: '⏰ Footy tips close tonight!',
+          body: 'Get your tips in before the first Thursday game. Tick tock.',
+          tag: 'tips-deadline', url: 'https://falkor.luckdragon.io',
+        });
+        await markAlertFired(env, tipKey);
+        fired.push({ rule: 'footy_tip_deadline' });
+      }
+    }
+  } catch (e) { console.warn('Tip deadline rule:', e.message); }
+
+  // ── Rule: Calendar 15-min reminders ──────────────────────────────────────
+  try {
+    var calTodayResp = await fetch(CALENDAR_URL + '/today', { headers: { 'X-Pin': env.AGENT_PIN } }).catch(() => null);
+    if (calTodayResp && calTodayResp.ok) {
+      var calTodayData = await calTodayResp.json();
+      var todayEvts = calTodayData.events || [];
+      for (var ci = 0; ci < todayEvts.length; ci++) {
+        var tevt = todayEvts[ci];
+        var tevtMs = new Date(tevt.start || tevt.date).getTime();
+        var minsTo = (tevtMs - now) / 60000;
+        if (minsTo >= 10 && minsTo <= 20) {
+          var calKey = 'cal_15min_' + (tevt.id || (tevt.summary || ci)) + '_' + Math.floor(tevtMs / 3600000);
+          if (!(await checkAlertFired(env, calKey, 30 * 60 * 1000))) {
+            await sendPush(env, {
+              title: '📅 In ~' + Math.round(minsTo) + ' mins: ' + (tevt.summary || 'Event'),
+              body: tevt.location ? 'At ' + tevt.location : 'Starting soon',
+              tag: 'calendar-reminder', url: 'https://falkor.luckdragon.io',
+            });
+            await markAlertFired(env, calKey);
+            fired.push({ rule: 'calendar_15min', event: tevt.summary });
+          }
+        }
+      }
+    }
+  } catch (e) { console.warn('Calendar 15min rule:', e.message); }
 
   return { fired, total: fired.length };
 }
