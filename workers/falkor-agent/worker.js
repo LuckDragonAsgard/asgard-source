@@ -1,5 +1,4 @@
-
-// falkor-agent v1.9.1 — fix wsConn→ws bug (DO 1101 crash), add WORKFLOWS_SERVICE binding
+// falkor-agent v2.2.0 — fix wsConn→ws bug (DO 1101 crash), add WORKFLOWS_SERVICE binding
 // v1.7.0 adds:
 //   1. Live context pre-loader — fetches weather/calendar/sport/tips before first reply
 //   2. Auto-memory — every 5 turns, Haiku extracts memorable facts → falkor-brain
@@ -49,6 +48,12 @@ function buildUserContext(userId) {
       interests: ['footy tips', 'racing', 'family'],
       email: null,
     },
+    aeneas: {
+      name: 'Aeneas',
+      desc: "Paddy's brother. Uses Falkor for footy tips, racing, and family comps.",
+      interests: ['footy tips', 'AFL', 'racing', 'family'],
+      email: 'aeneasg@hotmail.com',
+    },
   };
   return profiles[userId] || { name: userId || 'there', desc: 'a Falkor user.', interests: [], email: null };
 }
@@ -60,6 +65,21 @@ function corsJson(data, status = 200) {
   });
 }
 
+
+// ── Paddy's mode detector (AEST) ─────────────────────────────────────────────
+function getPaddyState() {
+  const nowAEST = new Date(Date.now() + 10 * 60 * 60 * 1000);
+  const h = nowAEST.getUTCHours();
+  const d = nowAEST.getUTCDay();
+  const isWeekday = d >= 1 && d <= 5;
+  if (h >= 23 || h < 6)  return { mode: 'sleep',   quiet: true,  label: 'probably asleep — keep it brief if they somehow messaged' };
+  if (isWeekday && h >= 8  && h < 15) return { mode: 'school',  quiet: true,  label: 'at school (WPS) — ultra concise, he has kids around' };
+  if (isWeekday && h >= 7  && h < 8)  return { mode: 'commute', quiet: true,  label: 'commuting — short replies only' };
+  if (isWeekday && h >= 15 && h < 16) return { mode: 'commute', quiet: false, label: 'just finished school, leaving' };
+  if (h >= 18 && h < 23)              return { mode: 'evening', quiet: false, label: 'evening — relaxed, can be conversational' };
+  return { mode: 'free', quiet: false, label: 'free time' };
+}
+
 // ── A2A Sub-agent Registry ────────────────────────────────────────────────────
 const AGENTS = {
   sport:     SPORT_URL,
@@ -69,6 +89,7 @@ const AGENTS = {
   school:    'https://falkor-school.luckdragon.io',
   web:       'https://falkor-web.luckdragon.io',
   code:      'https://falkor-code.luckdragon.io',
+  desktop:   'https://falkor-desktop.luckdragon.io',
 };
 
 const AGENT_MODEL_OVERRIDES = { sport: 'haiku', kbt: 'haiku', web: 'haiku' };
@@ -76,7 +97,7 @@ const AGENT_MODEL_OVERRIDES = { sport: 'haiku', kbt: 'haiku', web: 'haiku' };
 function routeIntent(text) {
   if (!text) return null;
   const t = text.toLowerCase();
-  if (/\b(afl|footy|football|ladder|tip|tipping|squiggle|racing|horse|race|round|score|fixture|essendon|collingwood|hawks|bombers|cats|demons|carlton|richmond|western bulldogs|fremantle|geelong|hawthorn|melbourne|port adelaide|gold coast|gws|brisbane|sydney|west coast|st kilda|north melbourne|adelaide|nrl|rugby league|panthers|warriors|roosters|rabbitohs|bulldogs|broncos|sharks|dragons|tigers|eels|knights|sea eagles|raiders|cowboys|titans|dolphins|storm)\b/.test(t))
+  if (/\b(afl|footy|football|ladder|tip|tipping|squiggle|racing|horse|race|round|score|fixture|essendon|collingwood|hawks|bombers|cats|demons|carlton|richmond|western bulldogs|fremantle|geelong|hawthorn|melbourne|port adelaide|gold coast|gws|brisbane|sydney|west coast|st kilda|north melbourne|adelaide)\b/.test(t))
     return { agent: 'sport', action: 'summary' };
   if (/\b(trivia|kbt|kow|brainer|quiz|question|pub quiz|game|host|players|leaderboard|event tonight|next event)\b/.test(t))
     return { agent: 'kbt', action: 'query' };
@@ -90,6 +111,8 @@ function routeIntent(text) {
     return { agent: 'brain', action: 'recall' };
   if (/\b(search|look up|find|google|what is|who is|latest|news|current|today's|recent)\b/.test(t) && t.length < 200)
     return { agent: 'web', action: 'search' };
+  if (/\b(open app|open program|take screenshot|screenshot|click|type on screen|computer control|run command|show on screen|my computer|desktop task)\b/.test(t))
+    return { agent: 'desktop', action: 'command' };
   return null;
 }
 
@@ -120,6 +143,11 @@ async function callSubAgent(agentKey, action, text, pin, aiPin) {
           method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
           body: JSON.stringify({ query: text }),
         }).then(r => r.ok ? r.json() : null);
+      case 'desktop':
+        return fetch(baseUrl + '/command', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
+          body: JSON.stringify({ command: text, intent: 'desktop', requested_by: 'falkor-agent' }),
+        }).then(r => r.ok ? r.json() : null);
       default: return null;
     }
   } catch { return null; }
@@ -129,9 +157,18 @@ async function callSubAgent(agentKey, action, text, pin, aiPin) {
 function detectAction(text) {
   if (!text) return null;
   const t = text.toLowerCase().trim();
-  // Email actions
+  // Email actions — self summary
   if (/\b(email me|send me|email summary|send (a )?summary|mail me)\b/.test(t))
     return { type: 'email', subject: 'Falkor summary', body: text };
+  // Email to external recipient: "email Tom about X" / "send email to Jane about Y"
+  const emailToRe = /\b(?:email|send\s+(?:an?\s+)?email|write\s+(?:an?\s+)?email|compose)\s+(?:to\s+)?([\w][\w\s.]*?)\s+(?:about|re:|regarding|saying|with subject)\s+(.+)/i;
+  const emailToMatch = t.match(emailToRe);
+  if (emailToMatch) {
+    return { type: 'email_compose', to_name: emailToMatch[1].trim(), subject_hint: emailToMatch[2].trim(), original: text };
+  }
+  // Check inbox
+  if (/\b(check\s+(?:my\s+)?emails?|read\s+(?:my\s+)?emails?|any\s+(?:new\s+)?emails?|what(?:'s|\s+is)?\s+in\s+(?:my\s+)?inbox|new\s+emails?)\b/.test(t))
+    return { type: 'check_email' };
   // Note / save actions
   if (/^(note|save|remember|log|jot)[\s:]+/.test(t) || /\b(note this|save this|log this|jot this|remember this)\b/.test(t))
     return { type: 'note', content: text.replace(/^(note|save|remember|log|jot)[\s:]+/i, '').trim() };
@@ -200,6 +237,73 @@ async function executeAction(action, userId, userCtx, pin, env) {
       } catch { /* non-fatal */ }
       return `Got it — I've saved that note: "${action.content}"`;
     }
+    case 'email_compose': {
+      // Compose and send email to an external recipient via AI + Resend
+      const resendKey = (env && env.RESEND_API_KEY) || '';
+      if (!resendKey) return 'Email unavailable — RESEND_API_KEY not set.';
+      let subject = (action.subject_hint || action.original || '').slice(0, 60);
+      let body = action.original || action.subject_hint || '';
+      try {
+        const composeResp = await fetch('https://asgard-ai.luckdragon.io/chat/smart', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Pin': env.AGENT_PIN || pin },
+          body: JSON.stringify({
+            message: 'Write a brief professional email based on this: ' + action.original + '. Output ONLY valid JSON: {"subject":"...","body":"..."}',
+            model: 'haiku', max_tokens: 300,
+            system: 'Output only valid JSON with subject and body fields. Be concise and professional.',
+          }),
+        });
+        if (composeResp && composeResp.ok) {
+          const cd = await composeResp.json().catch(function() { return {}; });
+          const raw = (cd.reply || '').trim();
+          const m2 = raw.match(/\{[\s\S]*?\}/);
+          if (m2) {
+            try {
+              const composed = JSON.parse(m2[0]);
+              if (composed.subject) subject = composed.subject;
+              if (composed.body) body = composed.body;
+            } catch(pe) { /* use original */ }
+          }
+        }
+      } catch(ce) { /* compose optional */ }
+      const knownContacts = { paddy: 'pgallivan@outlook.com', me: 'pgallivan@outlook.com' };
+      const toKey = (action.to_name || '').toLowerCase().split(' ')[0];
+      const toAddr = knownContacts[toKey] || userCtx.email || 'pgallivan@outlook.com';
+      try {
+        const r = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + resendKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ from: 'Falkor <falkor@luckdragon.io>', to: [toAddr], subject: subject, text: body }),
+        });
+        const rd = await r.json().catch(function() { return {}; });
+        if (rd.id) return 'Email sent to ' + toAddr + ' — "' + subject + '" ✓';
+        return 'Email failed: ' + JSON.stringify(rd).slice(0, 100);
+      } catch(se) { return 'Email error: ' + se.message; }
+    }
+    case 'check_email': {
+      // Read Outlook inbox via Microsoft Graph API if token available
+      const graphToken = (env && (env.GRAPH_ACCESS_TOKEN || env.MS_ACCESS_TOKEN)) || '';
+      if (graphToken) {
+        try {
+          const resp = await fetch('https://graph.microsoft.com/v1.0/me/messages?$top=8&$orderby=receivedDateTime desc&$select=subject,from,receivedDateTime,isRead,bodyPreview', {
+            headers: { 'Authorization': 'Bearer ' + graphToken, 'Accept': 'application/json' },
+          });
+          if (resp.ok) {
+            const data = await resp.json().catch(function() { return {}; });
+            const msgs = data.value || [];
+            if (!msgs.length) return 'Inbox is clear.';
+            return 'Recent emails:\n' + msgs.map(function(m) {
+              const unread = m.isRead ? '' : '[unread] ';
+              const fromName = (m.from && m.from.emailAddress) ? (m.from.emailAddress.name || m.from.emailAddress.address) : 'unknown';
+              const d = new Date(m.receivedDateTime).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'Australia/Melbourne' });
+              return unread + m.subject + ' — ' + fromName + ' (' + d + ')';
+            }).join('\n');
+          }
+          if (resp.status === 401) return 'Microsoft token expired — refresh GRAPH_ACCESS_TOKEN in vault.';
+        } catch(ge) { return 'Email read error: ' + ge.message; }
+      }
+      return 'To read your Outlook inbox, add a GRAPH_ACCESS_TOKEN secret to falkor-agent. See Paddy for setup.';
+    }
     case 'remind': {
       try {
         await fetch(`${BRAIN_URL}/remember`, {
@@ -250,14 +354,12 @@ async function loadLiveContext(pin, aiPin) {
 
   const safe = (p) => Promise.race([p, timeout(4000)]).catch(() => null);
 
-  const nrlSeason = new Date().getFullYear();
-  const [weather, calToday, calTomorrow, sport, nrlDraw, nrlLb] = await Promise.all([
+  const [weather, calToday, calTomorrow, sport, nrlLadder] = await Promise.all([
     safe(fetch(`${WEATHER_URL}/weather?lat=${WPS_LAT}&lon=${WPS_LON}`, { headers: { 'X-Pin': aiPin } }).then(r => r.ok ? r.json() : null)),
     safe(fetch(`${CALENDAR_URL}/today`,    { headers: { 'X-Pin': pin } }).then(r => r.ok ? r.json() : null)),
     safe(fetch(`${CALENDAR_URL}/tomorrow`, { headers: { 'X-Pin': pin } }).then(r => r.ok ? r.json() : null)),
     safe(fetch(`${SPORT_URL}/summary`,     { headers: { 'X-Pin': pin } }).then(r => r.ok ? r.json() : null)),
-    safe(fetch(`${SPORT_URL}/nrl/draw?season=${nrlSeason}`, { headers: { 'X-Pin': pin } }).then(r => r.ok ? r.json() : null)),
-    safe(fetch(`${SPORT_URL}/nrl/leaderboard?season=${nrlSeason}`, { headers: { 'X-Pin': pin } }).then(r => r.ok ? r.json() : null)),
+    safe(fetch(`${SPORT_URL}/nrl/ladder`,  { headers: { 'X-Pin': pin } }).then(r => r.ok ? r.json() : null)),
   ]);
 
   const lines = ['=== LIVE CONTEXT (fetched now) ==='];
@@ -283,7 +385,7 @@ async function loadLiveContext(pin, aiPin) {
   fmtEvents(calToday, 'TODAY');
   fmtEvents(calTomorrow, 'TOMORROW');
 
-  // Sport — AFL
+  // Sport
   if (sport) {
     if (sport.ladder) {
       const top3 = (sport.ladder || []).slice(0, 3).map(t => t.name || t.team).filter(Boolean).join(', ');
@@ -293,17 +395,11 @@ async function loadLiveContext(pin, aiPin) {
     if (sport.tips_leader) lines.push(`FOOTY TIPS LEADER: ${sport.tips_leader}`);
   }
 
-  // Sport — NRL
-  if (nrlDraw && nrlDraw.round) {
-    lines.push(`NRL ROUND: ${nrlDraw.round}`);
-    const upcomingNRL = (nrlDraw.fixtures || []).filter(g => g.matchMode !== 'Post').slice(0, 3);
-    if (upcomingNRL.length) {
-      lines.push('NRL UPCOMING: ' + upcomingNRL.map(g => `${g.homeTeam} vs ${g.awayTeam}`).join(', '));
-    }
-  }
-  if (nrlLb && nrlLb.leaderboard && nrlLb.leaderboard.length > 0) {
-    const nrlTop = nrlLb.leaderboard[0];
-    lines.push(`NRL TIPS LEADER: ${nrlTop.player} — ${nrlTop.correct}/${nrlTop.total} (${nrlTop.pct}%)`);
+  // NRL
+  if (nrlLadder && nrlLadder.ladder) {
+    const nrlTop3 = (nrlLadder.ladder || []).slice(0, 3).map(t => t.team || t.name).filter(Boolean).join(', ');
+    if (nrlLadder.season) lines.push('NRL SEASON: ' + nrlLadder.season);
+    if (nrlTop3) lines.push('NRL LADDER TOP 3: ' + nrlTop3);
   }
 
   lines.push('=== END LIVE CONTEXT ===');
@@ -420,7 +516,7 @@ export class FalkorAgent {
       const memory = await this.getMemory();
       const ctxTs = await this.state.storage.get('liveContextTs');
       return corsJson({
-        version: '1.9.3',
+        version: '2.2.0',
         activeSessions: this.sessions.size,
         historyLength: history.length,
         memoryKeys: Object.keys(memory).length,
@@ -506,15 +602,15 @@ export class FalkorAgent {
     if (action) {
       const actionReply = await executeAction(action, userId, userCtx, pin, this.env);
       if (actionReply) {
-        // If it was purely an action (note/remind/task), respond directly without AI
-        if (action.type === 'note' || action.type === 'remind' || action.type === 'task') {
+        // If it was purely an action (note/remind/task/check_email), respond directly without AI
+        if (action.type === 'note' || action.type === 'remind' || action.type === 'task' || action.type === 'check_email') {
           history.push({ role: 'user', content: text, ts: Date.now() });
           history.push({ role: 'assistant', content: actionReply, ts: Date.now() });
           await this.state.storage.put('history', JSON.stringify(history.slice(-200)));
           this.broadcast({ type: 'assistant_reply', text: actionReply, model });
           return actionReply;
         }
-        // For email, acknowledge then continue to also answer with AI
+        // For email/email_compose, acknowledge and continue to AI for natural language confirmation
         this.broadcast({ type: 'action_taken', action: action.type, message: actionReply });
       }
     }
@@ -535,6 +631,10 @@ export class FalkorAgent {
           const snippets = (agentData.results || []).slice(0, 3)
             .map(r => `- ${r.title}: ${r.snippet || ''}`.slice(0, 120)).join('\n');
           pendingAgentCtx = `\n\n## Web Search Results for "${text}"\nAnswer: ${agentData.answer}\n${snippets}\n\n(Use these results to answer the user — do not say you cannot search.)`;
+        } else if (intent.agent === 'desktop') {
+          const cmdId = agentData.id || '?';
+          const cmdText = agentData.command || text;
+          pendingAgentCtx = '\n\n[DESKTOP COMMAND QUEUED] ID:' + cmdId + ' — ' + cmdText + '. Tell the user the command has been queued and the local agent will execute it shortly.';
         } else {
           pendingAgentCtx = '\n\nLive data from falkor-' + intent.agent + ':\n' +
             JSON.stringify(agentData, null, 2).slice(0, 1500);
@@ -578,21 +678,45 @@ export class FalkorAgent {
     // ── 5. Build system prompt with live context injected ────────────────────
     const contextHistory = history.slice(-40).map(h => ({ role: h.role, content: h.content }));
 
+    // Time-awareness context (AEST = UTC+10)
+    const _nowAEST = new Date(Date.now() + 10 * 60 * 60 * 1000);
+    const _dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const _aestHour = _nowAEST.getUTCHours();
+    const _aestMin = _nowAEST.getUTCMinutes();
+    const _aestDay = _dayNames[_nowAEST.getUTCDay()];
+    const _aestDayNum = _nowAEST.getUTCDay();
+    const _isSchoolDay = _aestDayNum >= 1 && _aestDayNum <= 5;
+    const _isSchoolHours = _isSchoolDay && _aestHour >= 8 && _aestHour < 15;
+    const _isTipDeadline = _aestDayNum === 4 && _aestHour >= 17 && _aestHour < 21;
+    const _timeHint = _isSchoolHours
+      ? `${_aestDay} ${_aestHour}:${String(_aestMin).padStart(2,'0')} AEST — school hours`
+      : _isTipDeadline
+      ? `${_aestDay} ${_aestHour}:${String(_aestMin).padStart(2,'0')} AEST — tip deadline tonight!`
+      : `${_aestDay} ${_aestHour}:${String(_aestMin).padStart(2,'0')} AEST`;
+    const _timeContext = `Current time: ${_timeHint}`;
+    const _paddyState = getPaddyState();
+    const _stateContext = `Paddy's current mode: ${_paddyState.label}.${_paddyState.quiet ? ' Keep replies SHORT — one or two sentences max.' : ''}`;
+
     const systemPrompt = [
-      `You are Falkor — ${userCtx.name}'s personal AI. Think Jarvis from Iron Man: sharp, warm, occasionally dry, always useful. You are not a generic assistant. You are ${userCtx.name}'s AI.`,
-      `About ${userCtx.name}: ${userCtx.desc}`,
-      `## Personality rules (never break these):`,
-      `- Address ${userCtx.name} by first name naturally — not every sentence, but often enough that it feels personal`,
-      `- Be concise. No padding, no "Certainly!", no "Great question!". Get to the point.`,
-      `- Dry wit is welcome. A well-timed quip beats a paragraph of explanation.`,
-      `- Be confident. Don't hedge everything. If you know, say it. If you don't, say that briefly.`,
-      `- When you can DO something (send email, set reminder, check scores), do it — don't just explain how.`,
-      `- If you notice something important in the live context that ${userCtx.name} hasn't asked about, mention it.`,
-      `- Never start a reply with "I" as the first word. Vary your openings.`,
-      `- When web search results are provided in your context (marked "## Web Search Results"), USE them to answer — never say you cannot search or browse the internet. The results are already fetched for you.`,
-      `- Short replies are almost always better. Match the energy of the message.`,
-      `## What ${userCtx.name} cares about most:`,
-      `${userCtx.interests.join(', ')}`,
+      `You are Falkor — ${userCtx.name}'s personal AI. Built like Jarvis: direct, sharp, occasionally dry. Not a generic assistant — you know ${userCtx.name}'s world.`,
+      `## Who you're talking to:`,
+      `${userCtx.desc}`,
+      _timeContext,
+      _stateContext,
+      `## Personality rules (non-negotiable):`,
+      `- SHORT by default. 1–3 sentences unless the task genuinely demands more. Never pad.`,
+      `- No openers. Never start with "Certainly", "Great question", "Of course", "Sure", "Absolutely", "Happy to help", or any variant.`,
+      `- Never start a reply with the word "I".`,
+      `- Use ${userCtx.name}'s name once per reply — not every sentence.`,
+      `- Dry wit when it earns its place. One quip > two paragraphs.`,
+      `- Confidence. If you know it, say it. If you don't, one line. No hedging.`,
+      `- When you can ACT (send email, set reminder, check scores, run task) — do it and confirm. Don't just explain how.`,
+      `- Scan the live context for anything ${userCtx.name} cares about but hasn't asked. Worth mentioning: Essendon results, upcoming tipped horses, weather at WPS school.`,
+      `- No bullet points in conversational replies. Use them only for actual lists or multi-step instructions.`,
+      `- Match energy: short question → short answer. Complex task → structured reply.`,
+      `- Web search results in context (## Web Search Results)? Use them. Never say you can't search.`,
+      `## What ${userCtx.name} follows:`,
+      `${userCtx.interests.join(' · ')}`,
       systemExtra,
       liveContext,
       ragContext,
@@ -737,7 +861,7 @@ export default {
     }
 
     if (url.pathname === '/health') {
-      return Response.json({ status: 'ok', version: '1.9.3', worker: 'falkor-agent' });
+      return Response.json({ status: 'ok', version: '2.2.0', worker: 'falkor-agent' });
     }
 
     // ── /tasks proxy → falkor-workflows via service binding (no 522 loopback) ──
@@ -768,9 +892,8 @@ export default {
     }
 
     const userId = request.headers.get('X-User-Id') || url.searchParams.get('uid') || 'paddy';
-    const id = env.AGENT.idFromName(userId);
-    const stub = env.AGENT.get(id);
+    const id = env.FALKOR_AGENT.idFromName(userId);
+    const stub = env.FALKOR_AGENT.get(id);
     return stub.fetch(request);
   },
 };
-
