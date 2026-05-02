@@ -1,5 +1,5 @@
 
-const VERSION = 'v1.0.0';
+const VERSION = 'v1.1.0';
 const AGENT_URL = 'https://falkor-agent.luckdragon.io';
 
 function getUserId(from) {
@@ -55,6 +55,41 @@ const HELP_TEXT = `🐉 <b>Falkor Commands</b>
 
 Or just ask me anything!`;
 
+
+async function transcribeVoice(token, fileId, agentPin) {
+  try {
+    // Get Telegram file path
+    const fileRes = await fetch(
+      'https://api.telegram.org/bot' + token + '/getFile?file_id=' + fileId
+    );
+    const fileData = await fileRes.json();
+    if (!fileData.ok || !fileData.result) return null;
+    const filePath = fileData.result.file_path;
+
+    // Download the OGG audio
+    const audioRes = await fetch(
+      'https://api.telegram.org/file/bot' + token + '/' + filePath
+    );
+    if (!audioRes.ok) return null;
+    const audioBuffer = await audioRes.arrayBuffer();
+
+    // Build FormData and send to asgard-ai /stt
+    const form = new FormData();
+    const blob = new Blob([audioBuffer], { type: 'audio/ogg' });
+    form.append('audio', blob, 'voice.ogg');
+    const sttRes = await fetch('https://asgard-ai.luckdragon.io/stt', {
+      method: 'POST',
+      headers: { 'X-Pin': agentPin },
+      body: form
+    });
+    if (!sttRes.ok) return null;
+    const sttData = await sttRes.json();
+    return sttData.text || sttData.transcript || null;
+  } catch (e) {
+    return null;
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -99,12 +134,27 @@ export default {
       catch { return new Response('Bad request', { status: 400 }); }
 
       const msg = update.message;
-      if (!msg || !msg.text) return new Response('OK');
+      if (!msg) return new Response('OK');
 
       const chatId = msg.chat.id;
-      const text = msg.text.trim();
       const userId = getUserId(msg.from);
       const agentPin = env.AGENT_PIN || '';
+
+      // Handle voice notes
+      let text = msg.text ? msg.text.trim() : null;
+      if (!text && msg.voice) {
+        await tgSend(token, chatId, '\uD83C\uDF99\uFE0F Transcribing voice note\u2026');
+        text = await transcribeVoice(token, msg.voice.file_id, agentPin);
+        if (!text) {
+          await tgSend(token, chatId, 'Sorry, I couldn\'t transcribe that. Please try again.');
+          return new Response('OK');
+        }
+        // Echo the transcript so user knows what was heard
+        await tgSend(token, chatId, '\uD83D\uDDE8\uFE0F <i>You said: ' + text + '</i>');
+      }
+      if (!text) return new Response('OK');
+
+      const userId2 = userId; // alias so rest of code is unchanged
 
       fetch(`https://api.telegram.org/bot${token}/sendChatAction`, {
         method: 'POST',
