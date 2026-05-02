@@ -2851,6 +2851,7 @@ export default {
     `CREATE TABLE IF NOT EXISTS emergency_contacts (id TEXT PRIMARY KEY, user_id TEXT UNIQUE NOT NULL, name TEXT, relationship TEXT, phone TEXT, blood_type TEXT, allergies TEXT, medications TEXT, notes TEXT)`,
     `CREATE TABLE IF NOT EXISTS meal_rota (id TEXT PRIMARY KEY, week_date TEXT NOT NULL, day_of_week INTEGER NOT NULL, meal TEXT NOT NULL, cook_id TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(week_date, day_of_week))`,
     `ALTER TABLE invites ADD COLUMN user_id TEXT`,
+    `CREATE TABLE IF NOT EXISTS story_views (story_id TEXT NOT NULL, user_id TEXT NOT NULL, viewed_at DATETIME DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (story_id, user_id))`,
   ];
   for (const sql of v3tables) { try { await env.DB.exec(sql); } catch(e) {} }
 
