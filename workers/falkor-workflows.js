@@ -1,4 +1,4 @@
-// falkor-workflows v2.9.0 — Scheduled workflows + Jarvis-level autonomy
+// falkor-workflows v3.6.0 — Scheduled workflows + Jarvis-level autonomy + narrative brief
 // Cron: 0 21 * * * (7am AEST), 30 21 * * * (7:30am AEST), * * * * * (every 1min — reactive alerts)
 //
 // Scheduled jobs:
@@ -305,28 +305,65 @@ async function runDailySummary(env) {
 
   await sendEmail(env, { to: PADDY_EMAIL, subject: 'Falkor Daily — ' + date, html });
   await sendPush(env, { title: 'Falkor — ' + date, body: pushBody, tag: 'daily-summary' });
-  // Telegram morning brief (compact <=1000 chars)
+  // ── Telegram morning brief v2 — Jarvis narrative (Phase 49) ─────────────────
   var tgSent = false;
   try {
-    var tgParts = [];
-    tgParts.push('<b>Dragon Daily - ' + date + '</b>');
-    if (opener) tgParts.push('<i>' + opener + '</i>');
-    if (w) { var c2 = w.current; tgParts.push('Weather: ' + c2.temp + 'C ' + c2.condition + ' UV' + c2.uv + ' Rain' + c2.rain_chance + '%'); }
-    if (todayEvents.length > 0) { tgParts.push('Today: ' + todayEvents.slice(0,3).map(function(e){ return (e.time ? e.time + ' ' : '') + (e.summary || e.title || ''); }).join('; ')); }
+    // Build rich context for the AI narrative
+    var tgCtx = 'Date: ' + date;
+    if (w) {
+      var c2 = w.current;
+      tgCtx += '. Weather: ' + c2.temp + 'C, ' + c2.condition + ', UV ' + c2.uv + ', rain ' + c2.rain_chance + '%';
+      if (w.pe_suitable === false) tgCtx += ' (not suitable for outdoor PE)';
+      else if (w.pe_suitable === true) tgCtx += ' (good for outdoor PE)';
+    }
+    if (todayEvents.length > 0) {
+      tgCtx += '. Calendar today: ' + todayEvents.slice(0, 4).map(function(e) {
+        return (e.time ? e.time + ' ' : '') + (e.summary || e.title || '');
+      }).join('; ');
+    } else {
+      tgCtx += '. Nothing on the calendar today';
+    }
     if (sport && sport.ok) {
       if (sport.todays_games && sport.todays_games.length > 0) {
-        tgParts.push('AFL: ' + sport.todays_games.slice(0,2).map(function(g){ return g.home + ' v ' + g.away + (g.score ? ' ' + g.score : ''); }).join(', '));
+        tgCtx += '. AFL today: ' + sport.todays_games.slice(0, 2).map(function(g) {
+          return g.home + ' v ' + g.away + (g.score ? ' (' + g.score + ')' : '');
+        }).join(', ');
       } else if (sport.next_game) {
-        tgParts.push('Next AFL: ' + sport.next_game.home + ' v ' + sport.next_game.away + (sport.next_game.date ? ' ' + sport.next_game.date : ''));
+        tgCtx += '. Next AFL game: ' + sport.next_game.home + ' v ' + sport.next_game.away + (sport.next_game.date ? ' on ' + sport.next_game.date : '');
       }
       var tip2 = sport.tipping_summary || {};
-      if (tip2.leader) tgParts.push('Tips leader: ' + tip2.leader + (tip2.paddy_rank ? ' | Paddy #' + tip2.paddy_rank : ''));
-      if (sport.family_tips_due) tgParts.push('Family tips due today!');
+      if (tip2.leader) tgCtx += '. Tipping leader: ' + tip2.leader + (tip2.paddy_rank ? ', Paddy is #' + tip2.paddy_rank : '');
+      if (sport.family_tips_due) tgCtx += '. IMPORTANT: family footy tips are due today';
+      if (sport.nrl_round) tgCtx += '. NRL ' + sport.nrl_round;
+      if (sport.nrl_tipping_leader) tgCtx += ', NRL tips leader: ' + sport.nrl_tipping_leader;
     }
-    if (topVentures.length > 0) tgParts.push('Action: ' + topVentures[0].name + ' - ' + (topVentures[0].next || topVentures[0].status || ''));
-    var tgMsg = tgParts.join('\n');
-    if (tgMsg.length > 1000) tgMsg = tgMsg.slice(0, 997) + '...';
-    tgSent = await sendTelegram(env, tgMsg);
+    if (topVentures.length > 0) {
+      tgCtx += '. Top venture needing attention: ' + topVentures[0].name + (topVentures[0].next ? ' — ' + topVentures[0].next : '');
+    }
+    // Call AI for narrative brief
+    var tgNarrative = '';
+    var tgAiResp = await fetch('https://asgard-ai.luckdragon.io/chat/smart', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Pin': env.AGENT_PIN },
+      body: JSON.stringify({
+        message: 'You are Falkor — a Jarvis-style AI for Paddy. Write a flowing morning briefing as a single paragraph of natural prose (no bullet points, no headers, no lists). Weave together the key facts naturally — mention the date, weather, anything on the calendar, sport news, and one venture callout if relevant. Sound like Jarvis briefing Tony Stark: sharp, dry wit, direct. Use "Good morning, Paddy" to open. No emojis. Under 900 characters total. Context: ' + tgCtx,
+        model: 'groq-fast',
+        max_tokens: 250,
+      }),
+    });
+    if (tgAiResp && tgAiResp.ok) {
+      var tgAiData = await tgAiResp.json().catch(function() { return {}; });
+      tgNarrative = (tgAiData.reply || '').trim();
+    }
+    // Fallback to structured brief if AI fails
+    if (!tgNarrative) {
+      tgNarrative = 'Good morning, Paddy. ' + date + '. ' +
+        (w ? w.current.temp + 'C, ' + w.current.condition + ', UV ' + w.current.uv + '. ' : '') +
+        (todayEvents.length > 0 ? todayEvents.length + ' event' + (todayEvents.length > 1 ? 's' : '') + ' today. ' : '') +
+        (sport && sport.ok && sport.family_tips_due ? 'Tips due today. ' : '');
+    }
+    if (tgNarrative.length > 1000) tgNarrative = tgNarrative.slice(0, 997) + '...';
+    tgSent = await sendTelegram(env, tgNarrative);
   } catch(e2) { /* telegram optional */ }
 
   return { sent: true, date, sections: sections.length, ventures: topVentures.length, calendar_today: todayEvents.length, opener_generated: !!opener, tg_sent: tgSent };
