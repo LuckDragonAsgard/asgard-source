@@ -11,11 +11,17 @@ const JSON_MANIFEST = JSON.stringify({
   icons: [
     { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
     { src: '/icon-512.png', sizes: '512x512', type: 'image/png' }
+  ],
+  shortcuts: [
+    { name: 'AFL & Ladder', short_name: 'AFL', description: 'Check the AFL ladder', url: '/?intent=afl', icons: [{ src: '/icon-192.png', sizes: '192x192' }] },
+    { name: 'My Tips', short_name: 'Tips', description: 'Submit your footy tips', url: '/?intent=tips', icons: [{ src: '/icon-192.png', sizes: '192x192' }] },
+    { name: 'Daily Briefing', short_name: 'Briefing', description: 'Get your daily briefing', url: '/?intent=briefing', icons: [{ src: '/icon-192.png', sizes: '192x192' }] },
+    { name: 'Start Trivia', short_name: 'Trivia', description: 'Launch KBT trivia', url: '/?intent=trivia', icons: [{ src: '/icon-192.png', sizes: '192x192' }] }
   ]
 });
 
 const SW_CODE = `
-const CACHE = 'falkor-v8.9.0';
+const CACHE = 'falkor-v9.0.0';
 const CACHE_URLS = ['/'];
 
 self.addEventListener('install', e => {
@@ -48,19 +54,55 @@ self.addEventListener('push', e => {
       tag: d.tag || 'falkor',
       data: { url: d.url || 'https://falkor.luckdragon.io' },
       requireInteraction: false,
+      actions: d.actions || [],
     }));
   } catch(err) {}
 });
 
 self.addEventListener('notificationclick', e => {
   e.notification.close();
-  const target = e.notification.data?.url || 'https://falkor.luckdragon.io';
+  const target = e.action === 'snooze' ? '/?intent=briefing' : (e.notification.data?.url || 'https://falkor.luckdragon.io');
   e.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
     for (const c of list) {
-      if (c.url === target && 'focus' in c) return c.focus();
+      if (c.url.includes('falkor.luckdragon.io') && 'focus' in c) return c.focus();
     }
     return clients.openWindow(target);
   }));
+});
+
+function openOfflineDB() {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open('falkor-offline', 1);
+    req.onupgradeneeded = e => e.target.result.createObjectStore('queue', { keyPath: 'id', autoIncrement: true });
+    req.onsuccess = e => res(e.target.result);
+    req.onerror = rej;
+  });
+}
+async function getOfflineQueue() {
+  const db = await openOfflineDB();
+  return new Promise((res, rej) => { const tx = db.transaction('queue','readonly'); const req = tx.objectStore('queue').getAll(); req.onsuccess = () => res(req.result); req.onerror = rej; });
+}
+async function clearOfflineQueue() {
+  const db = await openOfflineDB();
+  return new Promise((res, rej) => { const tx = db.transaction('queue','readwrite'); tx.objectStore('queue').clear(); tx.oncomplete = res; tx.onerror = rej; });
+}
+
+self.addEventListener('sync', e => {
+  if (e.tag === 'falkor-chat-sync') {
+    e.waitUntil(getOfflineQueue().then(async items => {
+      if (!items.length) return;
+      for (const item of items) {
+        await fetch('https://falkor-agent.luckdragon.io/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Pin': item.pin },
+          body: JSON.stringify({ message: item.message, userId: item.userId, model: item.model }),
+        });
+      }
+      await clearOfflineQueue();
+      const allClients = await self.clients.matchAll({ type: 'window' });
+      for (const c of allClients) c.postMessage({ type: 'sync_complete' });
+    }));
+  }
 });
 `;
 
@@ -554,13 +596,13 @@ function SettingsPanel({ onClose, theme, onThemeToggle, voiceEnabled, onVoiceTog
 }
 
 // ─── SportPanel ───────────────────────────────────────────────────────────────
-function SportPanel({ pin }) {
+function SportPanel({ pin, initialTab }) {
   const [ladder, setLadder] = useState(null);
   const [games, setGames] = useState([]);
   const [tips, setTips] = useState([]);
   const [comp, setComp] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState('ladder');
+  const [tab, setTab] = useState(initialTab || 'ladder');
   const [rnd, setRnd] = useState(8);
   const [player, setPlayer] = useState(() => localStorage.getItem('falkor.sport.player') || '');
   const [tipped, setTipped] = useState({});
@@ -875,6 +917,62 @@ function CalendarPanel({ pin }) {
   );
 }
 
+// ─── HistoryPanel ─────────────────────────────────────────────────────────────
+function HistoryPanel({ convos, onOpen }) {
+  const [search, setSearch] = React.useState('');
+  const filtered = search
+    ? convos.filter(c =>
+        (c.title||'').toLowerCase().includes(search.toLowerCase()) ||
+        (c.messages||[]).some(m => (m.content||'').toLowerCase().includes(search.toLowerCase()))
+      )
+    : convos;
+  const grouped = filtered.reduce((acc, c) => {
+    const d = new Date(c.ts || Date.now());
+    const today = new Date(); const yesterday = new Date(today); yesterday.setDate(today.getDate()-1);
+    let key;
+    if (d.toDateString() === today.toDateString()) key = 'Today';
+    else if (d.toDateString() === yesterday.toDateString()) key = 'Yesterday';
+    else key = d.toLocaleDateString('en-AU', { weekday:'long', month:'short', day:'numeric' });
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(c);
+    return acc;
+  }, {});
+  return (
+    <div style={{ flex:1, overflow:'auto', padding:'16px 20px' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:'10px', marginBottom:'16px' }}>
+        <span style={{ fontSize:'18px', fontWeight:800 }}>📖 History</span>
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search conversations…"
+          style={{ flex:1, padding:'7px 12px', borderRadius:'8px', border:'1px solid var(--border)', background:'var(--panel)', color:'var(--text)', fontSize:'13px', outline:'none' }}/>
+      </div>
+      {filtered.length === 0 && <div style={{ color:'var(--muted)', textAlign:'center', padding:'40px 0' }}>No conversations found</div>}
+      {Object.entries(grouped).map(([day, dayConvos]) => (
+        <div key={day} style={{ marginBottom:'20px' }}>
+          <div style={{ fontSize:'12px', color:'var(--muted)', fontWeight:700, textTransform:'uppercase', letterSpacing:'.08em', padding:'12px 0 8px', borderBottom:'1px solid var(--border)', marginBottom:'10px' }}>{day}</div>
+          <div style={{ display:'flex', flexDirection:'column', gap:'6px' }}>
+            {dayConvos.map(c => {
+              const lastMsg = (c.messages||[]).slice(-1)[0];
+              const preview = (lastMsg?.content||'No messages').slice(0,80);
+              const count = (c.messages||[]).length;
+              return (
+                <div key={c.id} onClick={() => onOpen(c.id)}
+                  style={{ background:'var(--panel)', border:'1px solid var(--border)', borderRadius:'10px', padding:'12px 16px', cursor:'pointer', transition:'border-color .15s' }}
+                  onMouseEnter={e => e.currentTarget.style.borderColor='var(--accent)'}
+                  onMouseLeave={e => e.currentTarget.style.borderColor='var(--border)'}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:'8px', marginBottom:'4px' }}>
+                    <span style={{ fontWeight:600, fontSize:'14px' }}>{c.title || 'New chat'}</span>
+                    <span style={{ fontSize:'11px', color:'var(--muted)', flexShrink:0 }}>{count} msgs</span>
+                  </div>
+                  <div style={{ fontSize:'12px', color:'var(--muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{preview}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── MessageBubble ────────────────────────────────────────────────────────────
 function MessageBubble({ msg }) {
   const time = msg.ts ? new Date(msg.ts).toLocaleTimeString('en-AU', { hour:'2-digit', minute:'2-digit', hour12:true }) : '';
@@ -950,6 +1048,26 @@ function App() {
   useEffect(() => { LS.setConvos(convos); }, [convos]);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior:'smooth' }); }, [convos, typing]);
   useEffect(() => { if (user && convos.length === 0) newConvo(); }, [user]);
+
+  // Intent URL param handler
+  useEffect(() => {
+    if (!user) return;
+    const params = new URLSearchParams(window.location.search);
+    const intent = params.get('intent');
+    if (!intent) return;
+    window.history.replaceState({}, '', '/');
+    if (intent === 'afl' || intent === 'sport') setView('sport');
+    else if (intent === 'tips') setView('tips');
+    else if (intent === 'history') setView('history');
+    else if (intent === 'briefing') { setView('chat'); setTimeout(() => sendMessage("Give me today's briefing", null), 600); }
+    else if (intent === 'trivia') { setView('chat'); setTimeout(() => sendMessage("Let's play KBT trivia", null), 600); }
+  }, [user]);
+
+  useEffect(() => {
+    const handler = () => toast('📨 Queued messages sent!');
+    window.addEventListener('falkor-sync-complete', handler);
+    return () => window.removeEventListener('falkor-sync-complete', handler);
+  }, []);
   useEffect(() => { localStorage.setItem('falkor.activeId', activeId); }, [activeId]);
 
   useEffect(() => {
@@ -1196,6 +1314,8 @@ function App() {
           <button className={'nav-btn'+(view==='sport'?' active':'')} onClick={() => setView('sport')}>🏈</button>
           <button className={'nav-btn'+(view==='calendar'?' active':'')} onClick={() => setView('calendar')}>📅</button>
           <button className={'nav-btn'+(view==='sites'?' active':'')} onClick={() => setView('sites')}>🌐</button>
+          <button className={'nav-btn'+(view==='tips'?' active':'')} onClick={() => setView('tips')}>🏆</button>
+          <button className={'nav-btn'+(view==='history'?' active':'')} onClick={() => setView('history')}>📖</button>
           <div className="nav-sep"/>
 
           <select className="model-select" value={model} onChange={e => { setModelS(e.target.value); LS.setModel(e.target.value); }}>
@@ -1210,8 +1330,10 @@ function App() {
         </div>
 
         {view === 'sport'    && <SportPanel pin={LS.agentPin() || LS.pin()}/>}
+        {view === 'tips'     && <SportPanel pin={LS.agentPin() || LS.pin()} initialTab="comp"/>}
         {view === 'sites'    && <SitesPanel/>}
         {view === 'calendar' && <CalendarPanel pin={LS.agentPin() || LS.pin()}/>}
+        {view === 'history'  && <HistoryPanel convos={convos} onOpen={id => { setActiveId(id); setView('chat'); }}/>}
 
         {view === 'chat' && (
           <>
@@ -1347,7 +1469,13 @@ window.addEventListener('load', async () => {
   if (!('serviceWorker' in navigator)) return;
   try {
     swRegistration = await navigator.serviceWorker.register('/sw.js');
+    window._swReg = swRegistration;
     await checkPushState();
+    navigator.serviceWorker.addEventListener('message', e => {
+      if (e.data && e.data.type === 'sync_complete') {
+        window.dispatchEvent(new CustomEvent('falkor-sync-complete'));
+      }
+    });
   } catch(e) { console.warn('SW failed:', e); }
 });
 
