@@ -1,4 +1,4 @@
-// falkor-workflows v3.6.0 — Scheduled workflows + Jarvis-level autonomy + narrative brief
+// falkor-workflows v3.6.1 — Scheduled workflows + Jarvis-level autonomy + narrative brief
 // Cron: 0 21 * * * (7am AEST), 30 21 * * * (7:30am AEST), * * * * * (every 1min — reactive alerts)
 //
 // Scheduled jobs:
@@ -16,6 +16,11 @@
 // Bindings: DB (asgard-prod), PROJECTS_DB (project-hub-db), RESEND_API_KEY, AGENT_PIN, WEB_SERVICE (falkor-web)
 
 const VERSION = '3.4.0';
+
+// AI_WORKER_PIN getter — asgard-ai uses a separate PIN from AGENT_PIN
+function getAiPin(env) {
+  return env.AI_WORKER_PIN || env.AGENT_PIN || '';
+}
 const WORKER_NAME = 'falkor-workflows';
 const PUSH_URL = 'https://falkor-push.luckdragon.io';
 const SPORT_URL = 'https://falkor-sport.luckdragon.io';
@@ -275,7 +280,7 @@ async function runDailySummary(env) {
       (topVentures.length > 0 ? '. Ventures: ' + topVentures.length + ' active' : '');
     const aiResp = await fetch('https://asgard-ai.luckdragon.io/chat/smart', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Pin': env.AGENT_PIN },
+      headers: { 'Content-Type': 'application/json', 'X-Pin': getAiPin(env) },
       body: JSON.stringify({
         message: 'Write a sharp 2-sentence morning greeting for Paddy in Jarvis-from-Iron-Man style. Facts: ' + briefFacts + '. No emojis. Dry and confident. Address him as "Paddy". Max 35 words.',
         model: 'groq-fast',
@@ -344,7 +349,7 @@ async function runDailySummary(env) {
     var tgNarrative = '';
     var tgAiResp = await fetch('https://asgard-ai.luckdragon.io/chat/smart', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Pin': env.AGENT_PIN },
+      headers: { 'Content-Type': 'application/json', 'X-Pin': getAiPin(env) },
       body: JSON.stringify({
         message: 'You are Falkor — a Jarvis-style AI for Paddy. Write a flowing morning briefing as a single paragraph of natural prose (no bullet points, no headers, no lists). Weave together the key facts naturally — mention the date, weather, anything on the calendar, sport news, and one venture callout if relevant. Sound like Jarvis briefing Tony Stark: sharp, dry wit, direct. Use "Good morning, Paddy" to open. No emojis. Under 900 characters total. Context: ' + tgCtx,
         model: 'groq-fast',
@@ -731,7 +736,7 @@ async function runSmartAlerts(env) {
 
       var aiRes = await fetch('https://asgard-ai.luckdragon.io/chat/smart', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Pin': env.AGENT_PIN },
+        headers: { 'Content-Type': 'application/json', 'X-Pin': getAiPin(env) },
         body: JSON.stringify({ message: aiPrompt, model: 'groq-fast', max_tokens: 200 }),
       }).catch(function() { return null; });
 
