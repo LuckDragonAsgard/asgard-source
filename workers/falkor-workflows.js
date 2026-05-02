@@ -15,7 +15,7 @@
 //
 // Bindings: DB (asgard-prod), PROJECTS_DB (project-hub-db), RESEND_API_KEY, AGENT_PIN, WEB_SERVICE (falkor-web)
 
-const VERSION = '2.2.0';
+const VERSION = '2.4.0';
 const WORKER_NAME = 'falkor-workflows';
 const PUSH_URL = 'https://falkor-push.luckdragon.io';
 const SPORT_URL = 'https://falkor-sport.luckdragon.io';
@@ -701,6 +701,183 @@ async function runTaskExecutor(env) {
   await logRun(env, 'task_executor', { taskId: task.id, type: task.type, title: task.title, ok: !error });
   return { ran: 1, taskId: task.id, type: task.type, ok: !error };
 }
+
+// ─── Score watcher ────────────────────────────────────────────────────────────
+async function runScoreWatcher(env) {
+  if (!env.DB) return { skipped: 'no DB' };
+  try {
+    await env.DB.prepare('CREATE TABLE IF NOT EXISTS live_scores_cache (game_id TEXT PRIMARY KEY, home_score INTEGER, away_score INTEGER, status TEXT, updated_at TEXT)').run();
+  } catch (e) {}
+  const year = new Date().getFullYear();
+  for (let r = 1; r <= 24; r++) {
+    try {
+      const res = await fetch(SPORT_URL + '/afl/round?year=' + year + '&round=' + r + '&pin=' + env.AGENT_PIN);
+      if (!res.ok) continue;
+      const data = await res.json();
+      const games = Array.isArray(data) ? data : (data.games || []);
+      const liveGames = games.filter(function(g) { return g.status === 'live'; });
+      if (liveGames.length === 0) {
+        const allFinal = games.every(function(g) { return g.status === 'final'; });
+        if (!allFinal && games.length > 0) break;
+        continue;
+      }
+      const pushed = [];
+      for (var i = 0; i < liveGames.length; i++) {
+        var g = liveGames[i];
+        var cached = null;
+        try { cached = await env.DB.prepare('SELECT * FROM live_scores_cache WHERE game_id = ?').bind(String(g.id)).first(); } catch(e) {}
+        var newHome = g.homeScore || 0;
+        var newAway = g.awayScore || 0;
+        if (!cached || cached.home_score !== newHome || cached.away_score !== newAway) {
+          try { await env.DB.prepare('INSERT OR REPLACE INTO live_scores_cache (game_id, home_score, away_score, status, updated_at) VALUES (?, ?, ?, ?, ?)').bind(String(g.id), newHome, newAway, g.status, new Date().toISOString()).run(); } catch(e) {}
+          if (cached) {
+            try {
+              await fetch(PUSH_URL + '/send-all', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Pin': env.AGENT_PIN },
+                body: JSON.stringify({ title: '🏈 ' + g.home + ' vs ' + g.away, body: g.home + ' ' + newHome + ' – ' + newAway + ' ' + g.away, tag: 'afl-live-' + g.id, url: 'https://falkor.luckdragon.io/?intent=afl' }),
+              });
+              pushed.push(g.id);
+            } catch(e) {}
+          }
+        }
+      }
+      return { ok: true, round: r, live: liveGames.length, pushed: pushed.length };
+    } catch (e) { continue; }
+  }
+  return { ok: true, round: null, live: 0, pushed: 0 };
+}
+
+// ─── Weekly summary ───────────────────────────────────────────────────────────
+async function runWeeklySummary(env) {
+  var year = new Date().getFullYear();
+  var weekOfYear = Math.floor((Date.now() - new Date(year, 0, 1).getTime()) / (7 * 24 * 3600 * 1000));
+  var round = Math.max(1, Math.min(24, weekOfYear - 13));
+  var compData = null, lastRoundGames = [], upcomingGames = [];
+  try { var r1 = await fetch(SPORT_URL + '/afl/comp?year=' + year + '&round=' + round + '&pin=' + env.AGENT_PIN); compData = await r1.json(); } catch(e) {}
+  try { var r2 = await fetch(SPORT_URL + '/afl/round?year=' + year + '&round=' + round + '&pin=' + env.AGENT_PIN); var d2 = await r2.json(); lastRoundGames = Array.isArray(d2) ? d2 : (d2.games || []); } catch(e) {}
+  try { var r3 = await fetch(SPORT_URL + '/afl/round?year=' + year + '&round=' + (round+1) + '&pin=' + env.AGENT_PIN); var d3 = await r3.json(); upcomingGames = Array.isArray(d3) ? d3 : (d3.games || []); } catch(e) {}
+  var season = (compData && compData.season) ? compData.season : [];
+  var standingsRows = season.map(function(p, i) {
+    var medal = i === 0 ? ' 🥇' : i === 1 ? ' 🥈' : i === 2 ? ' 🥉' : '';
+    return '<tr style="background:' + (i%2===0?'#f9f9fc':'#fff') + '"><td style="padding:8px 12px">' + (i+1) + medal + '</td><td style="padding:8px 12px;font-weight:' + (i===0?'700':'400') + '">' + p.player + '</td><td style="padding:8px 12px;text-align:center;color:#22c55e;font-weight:600">' + p.correct + '</td><td style="padding:8px 12px;text-align:center">' + p.total + '</td><td style="padding:8px 12px;text-align:center;color:#72728a">' + p.pct + '%</td></tr>';
+  }).join('');
+  var resultsRows = lastRoundGames.filter(function(g){return g.status==='final';}).map(function(g) {
+    return '<tr><td style="padding:6px 12px;font-weight:' + (g.winner===g.home?'700':'400') + '">' + g.home + '</td><td style="padding:6px 12px;text-align:center;color:#72728a">' + (g.homeScore||0) + ' – ' + (g.awayScore||0) + '</td><td style="padding:6px 12px;font-weight:' + (g.winner===g.away?'700':'400') + '">' + g.away + '</td></tr>';
+  }).join('');
+  var upcomingRows = upcomingGames.slice(0,6).map(function(g) {
+    return '<tr><td style="padding:6px 12px">' + g.home + '</td><td style="padding:6px 12px;text-align:center;color:#72728a">vs</td><td style="padding:6px 12px">' + g.away + '</td><td style="padding:6px 4px;font-size:12px;color:#72728a">' + ((g.date||'').slice(0,10)) + '</td></tr>';
+  }).join('');
+  var html = '<!DOCTYPE html><html><body style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif;background:#f4f4f8;margin:0;padding:24px"><div style="max-width:600px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08)"><div style="background:linear-gradient(135deg,#6c63ff,#a78bfa);padding:28px 32px;color:#fff"><div style="font-size:28px;margin-bottom:4px">🐉 Falkor</div><h1 style="margin:0;font-size:22px;font-weight:800">Weekly AFL Summary</h1><p style="margin:4px 0 0;opacity:.8">Round ' + round + ' wrap-up</p></div><div style="padding:28px 32px">'
+    + (season.length ? '<h2 style="font-size:16px;font-weight:700;margin:0 0 12px">&#127942; Tips Leaderboard</h2><table style="width:100%;border-collapse:collapse;margin-bottom:28px"><thead><tr style="background:#f4f4f8"><th style="padding:8px 12px;text-align:left;font-size:12px;color:#72728a">#</th><th style="padding:8px 12px;text-align:left;font-size:12px;color:#72728a">Player</th><th style="padding:8px 12px;text-align:center;font-size:12px;color:#72728a">Correct</th><th style="padding:8px 12px;text-align:center;font-size:12px;color:#72728a">Total</th><th style="padding:8px 12px;text-align:center;font-size:12px;color:#72728a">%</th></tr></thead><tbody>' + standingsRows + '</tbody></table>' : '')
+    + (resultsRows ? '<h2 style="font-size:16px;font-weight:700;margin:0 0 12px">&#128203; Round ' + round + ' Results</h2><table style="width:100%;border-collapse:collapse;margin-bottom:28px"><tbody>' + resultsRows + '</tbody></table>' : '')
+    + (upcomingRows ? '<h2 style="font-size:16px;font-weight:700;margin:0 0 12px">&#128197; Round ' + (round+1) + ' Fixtures</h2><table style="width:100%;border-collapse:collapse;margin-bottom:28px"><tbody>' + upcomingRows + '</tbody></table>' : '')
+    + '<div style="background:#f4f4f8;border-radius:10px;padding:16px 20px"><p style="margin:0;font-size:13px;color:#72728a">Submit Round ' + (round+1) + ' tips: <a href="https://falkor.luckdragon.io/?intent=tips" style="color:#6c63ff;font-weight:600">falkor.luckdragon.io</a></p></div></div><div style="padding:16px 32px;background:#f4f4f8;text-align:center"><p style="margin:0;font-size:12px;color:#72728a">Sent by 🐉 Falkor</p></div></div></body></html>';
+  await sendEmail(env, { to: PADDY_EMAIL, subject: '🐉 Falkor AFL Weekly — Round ' + round + ' wrap-up', html: html });
+  return { ok: true, round: round, standings: season.length, results: lastRoundGames.filter(function(g){return g.status==='final';}).length };
+}
+
+// ─── Racing Results Scorer (Phase 27C) ───────────────────────────────────────
+async function runRacingResults(env) {
+  const pin = env.AGENT_PIN || '';
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Score yesterday's tips (racing runs afternoon AEST, score at 9am UTC next day = 7pm AEST same day)
+  var scoreResult = null;
+  try {
+    var scoreResp = await fetch(SPORT_URL + '/racing/score', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
+      body: JSON.stringify({ date: today }),
+    });
+    if (scoreResp.ok) {
+      scoreResult = await scoreResp.json();
+    }
+  } catch(e) { console.warn('runRacingResults score:', e.message); }
+
+  // Get leaderboard
+  var leaderboard = [];
+  try {
+    var lbResp = await fetch(SPORT_URL + '/racing/leaderboard', { headers: { 'X-Pin': pin } });
+    if (lbResp.ok) {
+      var lbData = await lbResp.json();
+      leaderboard = lbData.leaderboard || [];
+    }
+  } catch(e) { console.warn('runRacingResults leaderboard:', e.message); }
+
+  if (leaderboard.length === 0 && (!scoreResult || !scoreResult.scored)) {
+    return { ok: true, skipped: true, reason: 'no tips to score' };
+  }
+
+  // Build email
+  var lbRows = leaderboard.map(function(p, i) {
+    var medal = i === 0 ? ' 🥇' : i === 1 ? ' 🥈' : i === 2 ? ' 🥉' : '';
+    return '<tr style="background:' + (i%2===0?'#f9f9fc':'#fff') + '">' +
+      '<td style="padding:8px 12px">' + (i+1) + medal + '</td>' +
+      '<td style="padding:8px 12px;font-weight:' + (i===0?'700':'400') + '">' + p.player + '</td>' +
+      '<td style="padding:8px 12px;text-align:center;color:#22c55e;font-weight:600">' + p.wins + '</td>' +
+      '<td style="padding:8px 12px;text-align:center">' + p.total + '</td>' +
+      '<td style="padding:8px 12px;text-align:center;color:#72728a">' + p.pct + '%</td>' +
+      '<td style="padding:8px 12px;text-align:center;color:#72728a">' + p.days + 'd</td>' +
+      '</tr>';
+  }).join('');
+
+  var scoreHtml = '';
+  if (scoreResult && scoreResult.scored > 0) {
+    scoreHtml = '<h3 style="font-size:15px;font-weight:700;margin:0 0 8px">Today\'s Results (' + today + ')</h3>' +
+      '<p style="color:#444;margin:0 0 20px">Scored ' + scoreResult.scored + ' tips — ' +
+      (scoreResult.winners || 0) + ' winners 🎉</p>';
+  }
+
+  var html = '<div style="font-family:-apple-system,sans-serif;max-width:580px;margin:0 auto">' +
+    '<div style="background:linear-gradient(135deg,#f59e0b,#ef4444);padding:24px 28px;border-radius:12px 12px 0 0;color:#fff">' +
+    '<div style="font-size:24px;margin-bottom:4px">🏇 Falkor Racing</div>' +
+    '<h1 style="margin:0;font-size:20px;font-weight:800">Racing Tips Update</h1>' +
+    '<p style="margin:4px 0 0;opacity:.85">' + today + '</p></div>' +
+    '<div style="background:#fff;padding:24px 28px;border-radius:0 0 12px 12px;box-shadow:0 4px 20px rgba(0,0,0,.08)">' +
+    scoreHtml +
+    (leaderboard.length > 0 ?
+      '<h3 style="font-size:15px;font-weight:700;margin:0 0 12px">Season Leaderboard</h3>' +
+      '<table style="width:100%;border-collapse:collapse;margin-bottom:20px">' +
+      '<thead><tr style="background:#f4f4f8">' +
+      '<th style="padding:8px 12px;text-align:left;font-size:11px;color:#72728a">#</th>' +
+      '<th style="padding:8px 12px;text-align:left;font-size:11px;color:#72728a">Player</th>' +
+      '<th style="padding:8px 12px;text-align:center;font-size:11px;color:#72728a">Wins</th>' +
+      '<th style="padding:8px 12px;text-align:center;font-size:11px;color:#72728a">Tips</th>' +
+      '<th style="padding:8px 12px;text-align:center;font-size:11px;color:#72728a">%</th>' +
+      '<th style="padding:8px 12px;text-align:center;font-size:11px;color:#72728a">Days</th>' +
+      '</tr></thead><tbody>' + lbRows + '</tbody></table>'
+      : '') +
+    '<p style="margin:0;font-size:12px;color:#72728a">Tip tomorrow\'s races: ' +
+    '<a href="https://falkor.luckdragon.io/?intent=racing" style="color:#f59e0b;font-weight:600">falkor.luckdragon.io</a></p>' +
+    '</div></div>';
+
+  // Push notification
+  var leader = leaderboard[0];
+  var pushBody = leader
+    ? 'Leader: ' + leader.player + ' (' + leader.wins + ' wins, ' + leader.pct + '%)'
+    : 'Check the leaderboard!';
+  if (scoreResult && scoreResult.winners > 0) {
+    pushBody = scoreResult.winners + ' winner' + (scoreResult.winners > 1 ? 's' : '') + ' today! ' + pushBody;
+  }
+
+  await sendPush(env, {
+    title: '🏇 Racing tips scored — ' + today,
+    body: pushBody,
+    url: 'https://falkor.luckdragon.io/?intent=racing',
+    tag: 'racing-results',
+  });
+
+  await sendEmail(env, {
+    to: PADDY_EMAIL,
+    subject: '🏇 Racing Tips Update — ' + today,
+    html: html,
+  });
+
+  await logRun(env, 'racing_results', { date: today, scored: scoreResult ? scoreResult.scored : 0, leaderboard: leaderboard.length });
+  return { ok: true, date: today, scored: scoreResult ? scoreResult.scored : 0, leaderboard: leaderboard.length };
+}
+
 // ─── Cron dispatcher ──────────────────────────────────────────────────────────
 async function runScheduled(cron, env) {
   const hour = new Date().getUTCHours();
@@ -708,6 +885,22 @@ async function runScheduled(cron, env) {
 
   // Smart rules run every cron tick
   await runSmartAlerts(env).catch(function(e) { console.warn('smart alerts:', e.message); });
+
+  // Score watcher — runs every tick, active only during live games
+  await runScoreWatcher(env).catch(function(e) { console.warn('score watcher:', e.message); });
+
+  // Racing results — 11pm UTC = 9am AEST next day (after afternoon/evening races settled)
+  if (hour === 23 && minute < 15) {
+    var racingRes = await runRacingResults(env).catch(function(e) { return { ok: false, error: e.message }; });
+    await logRun(env, 'racing_results', racingRes);
+  }
+
+  // Weekly summary — Monday 10pm UTC = Tuesday 8am AEST
+  var dayOfWeek = new Date().getUTCDay();
+  if (dayOfWeek === 1 && hour === 22 && minute < 15) {
+    var wSum = await runWeeklySummary(env).catch(function(e) { return { ok: false, error: e.message }; });
+    await logRun(env, 'weekly_summary', wSum);
+  }
 
   // Task executor runs every tick — picks up 1 pending task
   await runTaskExecutor(env).catch(function(e) { console.warn('task executor:', e.message); });
@@ -763,7 +956,8 @@ export default {
           case 'pe_weather_alert': result = await runPEWeatherAlert(env); break;
           case 'daily_summary':    result = await runDailySummary(env); break;
           case 'smart_alerts':     result = await runSmartAlerts(env); break;
-          default: return err('Unknown workflow: ' + workflow + '. Options: pe_weather_alert, daily_summary, smart_alerts');
+          case 'racing_results':   result = await runRacingResults(env); break;
+          default: return err('Unknown workflow: ' + workflow + '. Options: pe_weather_alert, daily_summary, smart_alerts, racing_results');
         }
         await logRun(env, workflow, result);
         return json({ ok: true, workflow, result });
@@ -771,6 +965,21 @@ export default {
         await logRun(env, workflow, null, e?.message);
         return err('Workflow failed: ' + e?.message, 500);
       }
+    }
+
+    if (path === '/score-watch' && method === 'POST') {
+      const result = await runScoreWatcher(env);
+      return json({ ok: true, ...result });
+    }
+
+    if (path === '/weekly-summary' && method === 'POST') {
+      const result = await runWeeklySummary(env);
+      return json({ ok: true, ...result });
+    }
+
+    if (path === '/racing-results' && method === 'POST') {
+      const result = await runRacingResults(env);
+      return json({ ok: true, ...result });
     }
 
     if (path === '/smart-alerts/trigger' && method === 'POST') {
@@ -799,8 +1008,6 @@ export default {
         return json({ ok: true, runs: rows.results });
       } catch (e) { return err(e?.message, 500); }
     }
-
-
 
     // Task queue endpoints
     if (path === '/tasks' && method === 'GET') {
