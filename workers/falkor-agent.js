@@ -66,6 +66,21 @@ function corsJson(data, status = 200) {
   });
 }
 
+
+// ── Paddy's mode detector (AEST) ─────────────────────────────────────────────
+function getPaddyState() {
+  const nowAEST = new Date(Date.now() + 10 * 60 * 60 * 1000);
+  const h = nowAEST.getUTCHours();
+  const d = nowAEST.getUTCDay();
+  const isWeekday = d >= 1 && d <= 5;
+  if (h >= 23 || h < 6)  return { mode: 'sleep',   quiet: true,  label: 'probably asleep — keep it brief if they somehow messaged' };
+  if (isWeekday && h >= 8  && h < 15) return { mode: 'school',  quiet: true,  label: 'at school (WPS) — ultra concise, he has kids around' };
+  if (isWeekday && h >= 7  && h < 8)  return { mode: 'commute', quiet: true,  label: 'commuting — short replies only' };
+  if (isWeekday && h >= 15 && h < 16) return { mode: 'commute', quiet: false, label: 'just finished school, leaving' };
+  if (h >= 18 && h < 23)              return { mode: 'evening', quiet: false, label: 'evening — relaxed, can be conversational' };
+  return { mode: 'free', quiet: false, label: 'free time' };
+}
+
 // ── A2A Sub-agent Registry ────────────────────────────────────────────────────
 const AGENTS = {
   sport:     SPORT_URL,
@@ -494,7 +509,7 @@ export class FalkorAgent {
       const memory = await this.getMemory();
       const ctxTs = await this.state.storage.get('liveContextTs');
       return corsJson({
-        version: '2.0.0',
+        version: '2.1.0',
         activeSessions: this.sessions.size,
         historyLength: history.length,
         memoryKeys: Object.keys(memory).length,
@@ -672,12 +687,15 @@ export class FalkorAgent {
       ? `${_aestDay} ${_aestHour}:${String(_aestMin).padStart(2,'0')} AEST — tip deadline tonight!`
       : `${_aestDay} ${_aestHour}:${String(_aestMin).padStart(2,'0')} AEST`;
     const _timeContext = `Current time: ${_timeHint}`;
+    const _paddyState = getPaddyState();
+    const _stateContext = `Paddy's current mode: ${_paddyState.label}.${_paddyState.quiet ? ' Keep replies SHORT — one or two sentences max.' : ''}`;
 
     const systemPrompt = [
       `You are Falkor — ${userCtx.name}'s personal AI. Built like Jarvis: direct, sharp, occasionally dry. Not a generic assistant — you know ${userCtx.name}'s world.`,
       `## Who you're talking to:`,
       `${userCtx.desc}`,
       _timeContext,
+      _stateContext,
       `## Personality rules (non-negotiable):`,
       `- SHORT by default. 1–3 sentences unless the task genuinely demands more. Never pad.`,
       `- No openers. Never start with "Certainly", "Great question", "Of course", "Sure", "Absolutely", "Happy to help", or any variant.`,
@@ -836,7 +854,7 @@ export default {
     }
 
     if (url.pathname === '/health') {
-      return Response.json({ status: 'ok', version: '2.0.0', worker: 'falkor-agent' });
+      return Response.json({ status: 'ok', version: '2.1.0', worker: 'falkor-agent' });
     }
 
     // ── /tasks proxy → falkor-workflows via service binding (no 522 loopback) ──
