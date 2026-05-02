@@ -1,4 +1,4 @@
-// falkor-workflows v3.6.1 — Scheduled workflows + Jarvis-level autonomy + narrative brief
+// falkor-workflows v3.7.0 — Scheduled workflows + Jarvis-level autonomy + narrative brief
 // Cron: 0 21 * * * (7am AEST), 30 21 * * * (7:30am AEST), * * * * * (every 1min — reactive alerts)
 //
 // Scheduled jobs:
@@ -1329,7 +1329,10 @@ async function runScheduled(cron, env) {
 
   // 5:30am UTC = 3:30pm AEST, Mon-Fri → After-school check-in
   var cDow = new Date().getUTCDay();
-  if (hour === 5 && minute >= 30 && minute < 45 && cDow >= 1 && cDow <= 5) {
+  if (cDow === 4 && hour === 0 && minute < 15) {
+      await runTipSuggestions(env).then(function(r){ logRun(env, 'tip_suggestions', r); }).catch(function(){});
+    }
+    if (hour === 5 && minute >= 30 && minute < 45 && cDow >= 1 && cDow <= 5) {
     var checkinRes = await runAfterSchoolCheckin(env).catch(function(e) { return { ok: false, error: e.message }; });
     await logRun(env, 'after_school_checkin', checkinRes);
   }
@@ -1338,8 +1341,102 @@ async function runScheduled(cron, env) {
 }
 
 // ─── Main Worker ──────────────────────────────────────────────────────────────
+
+// ─── Phase 50: AFL Smart Tip Suggestions ─────────────────────────────────────
+async function runTipSuggestions(env) {
+  var year = new Date().getFullYear();
+  try {
+    // 1. Get all incomplete games to find the next fully upcoming round
+    var gamesResp = await fetch(SPORT_URL + '/afl/round?year=' + year, {
+      headers: { 'X-Pin': env.AGENT_PIN }
+    }).catch(function() { return null; });
+    if (!gamesResp || !gamesResp.ok) return { sent: false, reason: 'Could not fetch games' };
+    var games = await gamesResp.json().catch(function() { return []; });
+    if (!Array.isArray(games) || !games.length) return { sent: false, reason: 'No game data' };
+
+    // 2. Find next fully upcoming round (no games started yet)
+    var upcoming = games.filter(function(g) { return (g.complete || 0) < 100; });
+    var rounds = [...new Set(upcoming.map(function(g) { return g.round; }))].sort(function(a,b) { return a-b; });
+    var targetRound = null;
+    for (var i = 0; i < rounds.length; i++) {
+      var r = rounds[i];
+      var rGames = upcoming.filter(function(g) { return g.round === r; });
+      var started = rGames.filter(function(g) { return (g.complete || 0) > 0; });
+      if (started.length === 0) { targetRound = r; break; }
+    }
+    if (!targetRound) return { sent: false, reason: 'No fully upcoming round found' };
+
+    // 3. Rate-limit: once per round
+    var alertKey = 'tip_suggestions_r' + targetRound + '_' + year;
+    if (await checkAlertFired(env, alertKey, 6 * 24 * 60 * 60 * 1000)) {
+      return { sent: false, reason: "Already sent for round " + targetRound };
+    }
+
+    // 4. Get Squiggle model tips for this round
+    var tipsResp = await fetch(SPORT_URL + '/afl/tips?year=' + year + '&round=' + targetRound, {
+      headers: { 'X-Pin': env.AGENT_PIN }
+    }).catch(function() { return null; });
+    var tips = (tipsResp && tipsResp.ok) ? await tipsResp.json().catch(function() { return []; }) : [];
+
+    // 5. Get fixtures for this specific round
+    var roundGames = upcoming.filter(function(g) { return g.round === targetRound; });
+
+    // 6. Match tips to games by ID
+    var tipMap = {};
+    if (Array.isArray(tips)) {
+      tips.forEach(function(t) { tipMap[t.gameId] = t; });
+    }
+
+    var gameTips = roundGames.map(function(g) {
+      var t = tipMap[g.id];
+      return {
+        home: g.home || '?',
+        away: g.away || '?',
+        date: (g.date || '').substring(0, 10),
+        tip: t ? t.tip : null,
+        confidence: t ? Math.round(parseFloat(t.confidence)) : null
+      };
+    }).sort(function(a, b) { return a.date > b.date ? 1 : -1; });
+
+    // 7. Call AI for narrative tip pack
+    var gameList = gameTips.map(function(g) {
+      return g.home + ' v ' + g.away + ' (' + g.date + ')' + (g.tip ? ': model tips ' + g.tip + ' at ' + g.confidence + '%' : '');
+    }).join('; ');
+
+    var aiPrompt = 'You are Falkor, Paddy is the AFL tipping assistant. Round ' + targetRound + ' AFL fixtures with model predictions. Write a concise tipping guide — for each game, state the recommended tip and one punchy reason (form, venue, recent results, head-to-head). Max 12 words per game. If Essendon are playing, flag it. No emojis, no bullet symbols, write it as a plain list with each game on its own line. Fixtures: ' + gameList;
+
+    var tgNarrative = '';
+    var aiResp2 = await fetch(AI_URL + '/chat/smart', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Pin': getAiPin(env) },
+      body: JSON.stringify({ message: aiPrompt, model: 'groq-fast', max_tokens: 400 })
+    }).catch(function() { return null; });
+    if (aiResp2 && aiResp2.ok) {
+      var aiData2 = await aiResp2.json().catch(function() { return {}; });
+      tgNarrative = (aiData2.reply || '').trim();
+    }
+
+    // Fallback to plain list
+    if (!tgNarrative) {
+      tgNarrative = gameTips.map(function(g) {
+        return g.home + ' v ' + g.away + (g.tip ? ': ' + g.tip + ' (' + g.confidence + '%)' : '');
+      }).join('\n');
+    }
+
+    var msg = '<b>Round ' + targetRound + ' AFL Tip Suggestions</b>\n\n' + tgNarrative + '\n\nSubmit: falkor.luckdragon.io';
+    if (msg.length > 4096) msg = msg.slice(0, 4093) + '...';
+
+    await markAlertFired(env, alertKey);
+    var tgSent2 = await sendTelegram(env, msg);
+    return { sent: tgSent2, round: targetRound, games: gameTips.length, ai_generated: !!tgNarrative };
+  } catch(e) {
+    return { sent: false, error: e.message };
+  }
+}
+
 export default {
-  async scheduled(event, env, ctx) {
+  
+async scheduled(event, env, ctx) {
     ctx.waitUntil(runScheduled(event.cron, env).catch(function(e) {
       console.error('Scheduled error:', e?.message);
       logRun(env, 'cron', null, e?.message);
@@ -1370,6 +1467,7 @@ export default {
         switch (workflow) {
           case 'pe_weather_alert': result = await runPEWeatherAlert(env); break;
           case 'daily_summary':    result = await runDailySummary(env); break;
+          case 'tip_suggestions':  result = await runTipSuggestions(env); break;
           case 'smart_alerts':     result = await runSmartAlerts(env); break;
           case 'racing_results':   result = await runRacingResults(env); break;
           case 'racing_weekly':    result = await runRacingWeeklySummary(env); break;
