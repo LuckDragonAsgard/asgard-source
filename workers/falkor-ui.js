@@ -16,12 +16,13 @@ const JSON_MANIFEST = JSON.stringify({
     { name: 'AFL & Ladder', short_name: 'AFL', description: 'Check the AFL ladder', url: '/?intent=afl', icons: [{ src: '/icon-192.png', sizes: '192x192' }] },
     { name: 'My Tips', short_name: 'Tips', description: 'Submit your footy tips', url: '/?intent=tips', icons: [{ src: '/icon-192.png', sizes: '192x192' }] },
     { name: 'Daily Briefing', short_name: 'Briefing', description: 'Get your daily briefing', url: '/?intent=briefing', icons: [{ src: '/icon-192.png', sizes: '192x192' }] },
-    { name: 'Start Trivia', short_name: 'Trivia', description: 'Launch KBT trivia', url: '/?intent=trivia', icons: [{ src: '/icon-192.png', sizes: '192x192' }] }
+    { name: 'Start Trivia', short_name: 'Trivia', description: 'Launch KBT trivia', url: '/?intent=trivia', icons: [{ src: '/icon-192.png', sizes: '192x192' }] },
+    { name: 'Racing Tips', short_name: 'Racing', description: 'Pick your racing tips', url: '/?intent=racing', icons: [{ src: '/icon-192.png', sizes: '192x192' }] }
   ]
 });
 
 const SW_CODE = `
-const CACHE = 'falkor-v9.0.0';
+const CACHE = 'falkor-v9.6.0';
 const CACHE_URLS = ['/'];
 
 self.addEventListener('install', e => {
@@ -110,7 +111,7 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === '/health') {
-      return new Response(JSON.stringify({status:'ok',version:'8.9.0',worker:'falkor-ui'}), {
+      return new Response(JSON.stringify({status:'ok',version:'9.6.0',worker:'falkor-ui'}), {
         headers: {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}
       });
     }
@@ -596,7 +597,260 @@ function SettingsPanel({ onClose, theme, onThemeToggle, voiceEnabled, onVoiceTog
 }
 
 // ─── SportPanel ───────────────────────────────────────────────────────────────
-function SportPanel({ pin, initialTab }) {
+
+
+function NRLPanel({pin}){
+  var SPORT_URL='https://falkor-sport.luckdragon.io';
+  var YEAR=new Date().getFullYear();
+  var [draw,setDraw]=React.useState(null);
+  var [lb,setLb]=React.useState([]);
+  var [standings,setStandings]=React.useState([]);
+  var [tab,setTab]=React.useState('tips');
+  var [tipped,setTipped]=React.useState({});
+  var [loading,setLoading]=React.useState(true);
+  var [player,setPlayer]=React.useState(function(){
+    try{var u=JSON.parse(localStorage.getItem('falkor.user')||'null');if(u&&u.name)return u.name;}catch{}
+    return localStorage.getItem('falkor.sport.player')||'';
+  });
+  var loggedInName=(function(){try{var u=JSON.parse(localStorage.getItem('falkor.user')||'null');return u&&u.name?u.name:null;}catch{return null;}}());
+
+  async function load(){
+    setLoading(true);
+    try{
+      var [dr,lb2,ldr]=await Promise.all([
+        fetch(SPORT_URL+'/nrl/draw?season='+YEAR+'&pin='+pin).then(r=>r.json()),
+        fetch(SPORT_URL+'/nrl/leaderboard?pin='+pin).then(r=>r.json()),
+        fetch(SPORT_URL+'/nrl/ladder?season='+YEAR+'&pin='+pin).then(r=>r.json()),
+      ]);
+      setDraw(dr);
+      setLb(lb2.leaderboard||[]);
+      setStandings(ldr.ladder||[]);
+      // load existing tips
+      if(player&&dr.round){
+        var tr=await fetch(SPORT_URL+'/nrl/tips?season='+YEAR+'&round='+dr.round+'&pin='+pin).then(r=>r.json());
+        var t={};
+        (tr.tips||[]).forEach(function(tip){if(tip.player===player)t[tip.game_id]=tip.tip;});
+        setTipped(t);
+      }
+    }catch(e){}
+    setLoading(false);
+  }
+
+  React.useEffect(function(){load();},[]);
+
+  async function submitTip(game){
+    var pName=loggedInName||player;
+    if(!pName){if(typeof toast==='function')toast('Enter your name first');return;}
+    var sel=tipped[game.id];
+    if(!sel)return;
+    await fetch(SPORT_URL+'/nrl/tip?pin='+pin,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({player:pName,season:YEAR,round:draw.round,gameId:game.id,homeTeam:game.homeTeam,awayTeam:game.awayTeam,tip:sel})
+    });
+    if(typeof toast==='function')toast('Tip saved: '+sel+' ✅');
+    setTimeout(load,400);
+  }
+
+  var TB2=function(t){return{padding:'5px 12px',border:'none',borderRadius:'7px',cursor:'pointer',fontSize:'12px',fontWeight:tab===t?700:400,background:tab===t?'rgba(108,99,255,.15)':'transparent',color:tab===t?'var(--accent2)':'var(--muted)',marginRight:'4px'};};
+
+  if(loading)return React.createElement('div',{style:{padding:'24px',color:'var(--muted)'}},'⏳ Loading NRL...');
+
+  return React.createElement('div',{style:{flex:1,overflow:'auto',padding:'16px 20px'}},
+    React.createElement('div',{style:{display:'flex',alignItems:'center',gap:'10px',marginBottom:'16px',flexWrap:'wrap'}},
+      React.createElement('span',{style:{fontSize:'18px',fontWeight:800}},'🏹 NRL '+YEAR),
+      draw&&React.createElement('span',{style:{fontSize:'13px',color:'var(--muted)'}},draw.fixtures&&draw.fixtures[0]&&draw.fixtures[0].roundTitle||'Round '+draw.round),
+      React.createElement('button',{onClick:load,style:{fontSize:'11px',padding:'3px 9px',background:'var(--input-bg)',border:'1px solid var(--border)',borderRadius:'6px',cursor:'pointer',color:'var(--muted)',marginLeft:'auto'}},'↺ Refresh')
+    ),
+    React.createElement('div',{style:{marginBottom:'14px'}},
+      React.createElement('button',{style:TB2('tips'),onClick:function(){setTab('tips');}},'🎯 My Tips'),
+      React.createElement('button',{style:TB2('ladder'),onClick:function(){setTab('ladder');}},'🏆 Leaderboard'),
+      React.createElement('button',{style:TB2('standings'),onClick:function(){setTab('standings');}},'🏟 NRL Ladder')
+    ),
+    tab==='tips'&&React.createElement('div',null,
+      !loggedInName&&React.createElement('input',{value:player,onChange:function(e){setPlayer(e.target.value);localStorage.setItem('falkor.sport.player',e.target.value);},placeholder:'Your name',style:{background:'var(--input-bg)',border:'1px solid var(--border)',borderRadius:'8px',padding:'8px 12px',color:'var(--text)',fontSize:'13px',width:'180px',marginBottom:'12px'}}),
+      loggedInName&&React.createElement('div',{style:{display:'inline-flex',alignItems:'center',gap:'6px',background:'rgba(108,99,255,.1)',border:'1px solid var(--accent)',borderRadius:'20px',padding:'4px 12px',fontSize:'12px',color:'var(--accent2)',marginBottom:'12px'}},'🎳 ',loggedInName),
+      draw&&(draw.fixtures||[]).map(function(game){
+        return React.createElement('div',{key:game.id,style:{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'10px',padding:'12px 14px',marginBottom:'8px'}},
+          React.createElement('div',{style:{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:'8px'}},
+            React.createElement('div',{style:{fontSize:'13px',fontWeight:600,minWidth:'60px',textAlign:'center',flex:1}},game.homeTeam,(game.homeScore!==null&&game.homeScore!==undefined)&&React.createElement('span',{style:{fontSize:'12px',color:'var(--muted)',marginLeft:'4px'}},game.homeScore)),
+            React.createElement('div',{style:{display:'flex',gap:'6px',flexShrink:0}},
+              ['home','away'].map(function(side){
+                var teamName=side==='home'?game.homeTeam:game.awayTeam;
+                var picked=tipped[game.id]===teamName;
+                var correct=game.winner&&game.winner===teamName;
+                var wrong=game.winner&&game.winner!==teamName&&picked;
+                return React.createElement('button',{key:side,onClick:function(){
+                  if(game.matchMode==='Post')return;
+                  setTipped(function(p){var n=Object.assign({},p);n[game.id]=teamName;return n;});
+                },style:{padding:'5px 10px',borderRadius:'6px',border:'1px solid',fontSize:'11px',cursor:game.matchMode==='Post'?'default':'pointer',fontWeight:picked?700:400,borderColor:correct?'var(--green)':wrong?'var(--red)':picked?'var(--accent)':'var(--border)',background:correct?'rgba(34,197,94,.1)':wrong?'rgba(239,68,68,.1)':picked?'rgba(108,99,255,.12)':'transparent',color:correct?'var(--green)':wrong?'var(--red)':picked?'var(--accent2)':'var(--muted)'}},side==='home'?'←':'',game.matchMode!=='Post'&&(side==='home'?'Home':'Away'));
+              })
+            ),
+            React.createElement('div',{style:{fontSize:'13px',fontWeight:600,minWidth:'60px',textAlign:'center',flex:1}},game.awayTeam,(game.awayScore!==null&&game.awayScore!==undefined)&&React.createElement('span',{style:{fontSize:'12px',color:'var(--muted)',marginLeft:'4px'}},game.awayScore)),
+            game.matchMode!=='Post'&&tipped[game.id]&&React.createElement('button',{onClick:function(){submitTip(game);},style:{padding:'4px 10px',background:'var(--accent)',color:'#fff',border:'none',borderRadius:'6px',fontSize:'11px',cursor:'pointer',flexShrink:0}},'Save'),
+            game.matchMode==='Post'&&React.createElement('span',{style:{fontSize:'11px',color:'var(--muted)'}},'✔ FT')
+          )
+        );
+      })
+    ),
+    tab==='ladder'&&React.createElement('div',null,
+      lb.length===0&&React.createElement('div',{style:{color:'var(--muted)',fontSize:'13px',padding:'20px 0'}},'No tips scored yet this season.'),
+      lb.map(function(row){
+        return React.createElement('div',{key:row.player,style:{display:'flex',alignItems:'center',gap:'12px',padding:'10px 14px',background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'10px',marginBottom:'6px'}},
+          React.createElement('span',{style:{fontSize:'16px',fontWeight:700,width:'24px',color:row.rank===1?'#fbbf24':row.rank===2?'#9ca3af':row.rank===3?'#cd7c2f':'var(--muted)'}},row.rank===1?'🥇':row.rank===2?'🥈':row.rank===3?'🥉':row.rank),
+          React.createElement('span',{style:{flex:1,fontWeight:600,fontSize:'14px'}},row.player),
+          React.createElement('span',{style:{fontSize:'13px',color:'var(--green)',fontWeight:700}},row.correct,React.createElement('span',{style:{fontWeight:400,color:'var(--muted)'}},'/'+row.total)),
+          React.createElement('span',{style:{fontSize:'12px',color:'var(--muted)'}},row.pct+'%')
+        );
+      })
+    ),
+    tab==='standings'&&React.createElement('div',null,
+      standings.length===0&&React.createElement('div',{style:{color:'var(--muted)',fontSize:'13px',padding:'20px 0'}},'⏳ Loading ladder...'),
+      React.createElement('div',{style:{overflowX:'auto'}},
+        React.createElement('table',{style:{width:'100%',borderCollapse:'collapse',fontSize:'13px'}},
+          React.createElement('thead',null,
+            React.createElement('tr',null,
+              ['#','Team','P','W','L','D','PF','PA','Diff','Pts','Form'].map(function(h){
+                return React.createElement('th',{key:h,style:{padding:'6px 8px',textAlign:h==='Team'?'left':'center',color:'var(--muted)',fontWeight:600,borderBottom:'1px solid var(--border)',whiteSpace:'nowrap'}},h);
+              })
+            )
+          ),
+          React.createElement('tbody',null,
+            standings.map(function(t){
+              var diff=t.pointsDiff>0?'+'+t.pointsDiff:t.pointsDiff;
+              return React.createElement('tr',{key:t.position,style:{borderBottom:'1px solid var(--border)',background:t.position<=8?'rgba(108,99,255,.03)':'transparent'}},
+                React.createElement('td',{style:{padding:'7px 8px',textAlign:'center',fontWeight:700,color:t.position<=8?'var(--accent2)':'var(--muted)'}},t.position),
+                React.createElement('td',{style:{padding:'7px 8px',fontWeight:600}},t.team),
+                React.createElement('td',{style:{padding:'7px 8px',textAlign:'center'}},t.played),
+                React.createElement('td',{style:{padding:'7px 8px',textAlign:'center',color:'var(--green)',fontWeight:600}},t.wins),
+                React.createElement('td',{style:{padding:'7px 8px',textAlign:'center',color:'var(--red)'}},t.losses),
+                React.createElement('td',{style:{padding:'7px 8px',textAlign:'center'}},t.draws),
+                React.createElement('td',{style:{padding:'7px 8px',textAlign:'center'}},t.pointsFor),
+                React.createElement('td',{style:{padding:'7px 8px',textAlign:'center'}},t.pointsAgainst),
+                React.createElement('td',{style:{padding:'7px 8px',textAlign:'center',color:t.pointsDiff>0?'var(--green)':t.pointsDiff<0?'var(--red)':'var(--muted)'}},diff),
+                React.createElement('td',{style:{padding:'7px 8px',textAlign:'center',fontWeight:700}},t.points),
+                React.createElement('td',{style:{padding:'7px 8px',textAlign:'center',color:'var(--muted)',fontSize:'12px'}},t.form)
+              );
+            })
+          )
+        )
+      )
+    )
+  );
+}
+
+
+function RacingPanel({pin}){
+  var [meetings,setMeetings]=React.useState([]);
+  var [selMeeting,setSelMeeting]=React.useState(null);
+  var [races,setRaces]=React.useState([]);
+  var [myTips,setMyTips]=React.useState({});
+  var [leaderboard,setLeaderboard]=React.useState([]);
+  var [loading,setLoading]=React.useState(true);
+  var [tab,setTab]=React.useState('pick');
+  var [player,setPlayer]=React.useState(function(){try{var u=JSON.parse(localStorage.getItem('falkor.user')||'null');if(u&&u.name){localStorage.setItem('falkor.sport.player',u.name);return u.name;}}catch{}return localStorage.getItem('falkor.sport.player')||'';});
+  var loggedInName=(function(){try{var u=JSON.parse(localStorage.getItem('falkor.user')||'null');return u&&u.name?u.name:null;}catch{return null;}})();
+  var today=new Date().toISOString().slice(0,10);
+  var RURL='https://falkor-sport.luckdragon.io';
+  function rsf(path){var sep=path.includes('?')?'&':'?';return fetch(RURL+path+sep+'pin='+pin).then(function(r){return r.json();});}
+  function rLoad(){
+    setLoading(true);
+    Promise.allSettled([rsf('/racing/meetings?date='+today),rsf('/racing/leaderboard'),rsf('/racing/comp?date='+today)]).then(function(res){
+      if(res[0].status==='fulfilled') setMeetings(res[0].value.meetings||[]);
+      if(res[1].status==='fulfilled') setLeaderboard(res[1].value.leaderboard||[]);
+      if(res[2].status==='fulfilled'){var ex={};(res[2].value.tips||[]).forEach(function(t){if(t.player===player)ex[t.race_id]=t.selection;});setMyTips(ex);}
+      setLoading(false);
+    });
+  }
+  function rLoadRaces(m){
+    setSelMeeting(m);setRaces([]);
+    rsf('/racing/races?date='+today+'&venue='+encodeURIComponent(m.id||m.name)+'&type='+(m.type||'R')).then(function(d){setRaces(d.races||[]);});
+  }
+  function rPick(raceId,raceName,horse){
+    var pName=loggedInName||player;
+    if(!pName){alert('Enter your name first');return;}
+    if(!loggedInName) localStorage.setItem('falkor.sport.player',pName);
+    setMyTips(function(prev){var n=Object.assign({},prev);n[raceId]=horse;return n;});
+    fetch(RURL+'/racing/comp/tip?pin='+pin,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({player:pName,date:today,raceId:raceId,raceName:raceName,selection:horse})});
+  }
+  useEffect(function(){rLoad();},[]);
+  var RTB=function(t){return {padding:'6px 14px',border:'none',borderRadius:'7px',cursor:'pointer',fontSize:'13px',fontWeight:tab===t?600:400,background:tab===t?'rgba(108,99,255,.15)':'transparent',color:tab===t?'var(--accent2)':'var(--muted)',marginRight:'4px'};};
+  return (
+    <div style={{flex:1,overflow:'auto',padding:'16px 20px'}}>
+      <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'16px',flexWrap:'wrap'}}>
+        <span style={{fontSize:'18px',fontWeight:800}}>Racing Tips</span>
+        <span style={{fontSize:'12px',color:'var(--muted)'}}>{today}</span>
+        <div style={{marginLeft:'auto'}}>
+          {['pick','leaderboard'].map(function(t){return <button key={t} style={RTB(t)} onClick={function(){setTab(t);}}>{t==='pick'?'Pick Tips':'Board'}</button>;})}
+        </div>
+      </div>
+      <div style={{marginBottom:'12px',display:'flex',gap:'8px',alignItems:'center'}}>
+        {loggedInName ? <span style={{background:'rgba(108,99,255,.12)',border:'1px solid var(--accent)',borderRadius:'20px',color:'var(--accent2)',padding:'5px 14px',fontSize:'13px',fontWeight:600}}>🏇 {loggedInName}</span> : <input value={player} onChange={function(e){setPlayer(e.target.value);}} onBlur={function(){localStorage.setItem('falkor.sport.player',player);}} placeholder='Your name' style={{background:'var(--input-bg)',border:'1px solid var(--border)',borderRadius:'8px',color:'var(--text)',padding:'7px 12px',fontSize:'13px',width:'160px'}}/>}
+        <span style={{fontSize:'12px',color:'var(--muted)'}}>Pick a winner each race</span>
+      </div>
+      {loading && <div style={{color:'var(--muted)',fontSize:'13px',padding:'20px'}}>Loading meetings...</div>}
+      {!loading && tab==='pick' && (
+        <div>
+          <div style={{display:'flex',gap:'8px',flexWrap:'wrap',marginBottom:'16px'}}>
+            {meetings.length===0 && <div style={{color:'var(--muted)',fontSize:'13px'}}>No race meetings today. Check back on race day!</div>}
+            {meetings.map(function(m){return (
+              <button key={m.id} onClick={function(){rLoadRaces(m);}} style={{padding:'8px 14px',borderRadius:'8px',border:'2px solid '+(selMeeting&&selMeeting.id===m.id?'var(--accent)':'var(--border)'),background:selMeeting&&selMeeting.id===m.id?'rgba(108,99,255,.15)':'var(--input-bg)',color:'var(--text)',cursor:'pointer',fontSize:'13px'}}>
+                {m.type==='R'?'Thoroughbred':m.type==='G'?'Greyhound':m.type==='H'?'Harness':'Race'} - {m.name}
+              </button>
+            );})}
+          </div>
+          {selMeeting&&races.length===0 && <div style={{color:'var(--muted)',fontSize:'13px'}}>Loading race card...</div>}
+          {races.map(function(race){
+            var rId=(selMeeting.id||selMeeting.name)+'_'+(selMeeting.type||'R')+'_'+race.id;
+            var myPick=myTips[rId];
+            var done=race.status==='Final'||race.status==='Interim'||race.status==='Closed';
+            return (
+              <div key={race.id} style={{background:'var(--panel)',border:'1px solid var(--border)',borderRadius:'10px',padding:'12px 16px',marginBottom:'10px'}}>
+                <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'8px'}}>
+                  <span style={{fontWeight:700}}>Race {race.id}</span>
+                  {race.name && <span style={{color:'var(--muted)',fontSize:'12px'}}>{race.name}</span>}
+                  {race.distance && <span style={{color:'var(--muted)',fontSize:'11px'}}>{race.distance}m</span>}
+                  <span style={{marginLeft:'auto',fontSize:'11px',padding:'2px 8px',borderRadius:'20px',background:done?'rgba(34,197,94,.12)':'var(--border)',color:done?'var(--success)':'var(--muted)',fontWeight:600}}>{race.status||'Open'}</span>
+                </div>
+                {myPick && <div style={{fontSize:'12px',color:'var(--accent2)',marginBottom:'6px'}}>Your pick: <strong>{myPick}</strong></div>}
+                <div style={{display:'flex',flexWrap:'wrap',gap:'6px'}}>
+                  {race.runners.length===0 && <div style={{color:'var(--muted)',fontSize:'12px'}}>Runners not yet available</div>}
+                  {race.runners.map(function(r){return (
+                    <button key={r.num} onClick={function(){if(!done)rPick(rId,race.name||('Race '+race.id),r.name);}} style={{padding:'6px 12px',borderRadius:'8px',border:'2px solid '+(myPick===r.name?'var(--accent)':'var(--border)'),background:myPick===r.name?'rgba(108,99,255,.15)':'var(--input-bg)',color:'var(--text)',cursor:done?'default':'pointer',fontSize:'12px',fontWeight:myPick===r.name?700:400}}>
+                      <span style={{color:'var(--muted)'}}>{r.num}. </span>{r.name}
+                    </button>
+                  );})}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {!loading && tab==='leaderboard' && (
+        <div>
+          {leaderboard.length===0 && <div style={{color:'var(--muted)',fontSize:'13px'}}>No results yet - get your tips in on race day!</div>}
+          {leaderboard.length>0 && (
+            <table className="sport-table">
+              <thead><tr><th>#</th><th>Player</th><th style={{textAlign:'center'}}>Wins</th><th style={{textAlign:'center'}}>Tips</th><th style={{textAlign:'center'}}>Days</th><th style={{textAlign:'center'}}>%</th></tr></thead>
+              <tbody>{leaderboard.map(function(p,i){return (
+                <tr key={p.player} style={{fontWeight:p.player===player?700:400}}>
+                  <td style={{color:'var(--muted)'}}>{i+1}</td>
+                  <td>{p.player}{p.player===player && ' You'}</td>
+                  <td style={{textAlign:'center',color:'var(--success)',fontWeight:600}}>{p.wins}</td>
+                  <td style={{textAlign:'center'}}>{p.total}</td>
+                  <td style={{textAlign:'center',color:'var(--muted)'}}>{p.days}</td>
+                  <td style={{textAlign:'center',color:'var(--muted)'}}>{p.pct}%</td>
+                </tr>
+              );})}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SportPanel({ pin, initialTab, onLiveCount }) {
   const [ladder, setLadder] = useState(null);
   const [games, setGames] = useState([]);
   const [tips, setTips] = useState([]);
@@ -628,6 +882,15 @@ function SportPanel({ pin, initialTab }) {
     setLoading(false);
   }
   useEffect(() => { load(); }, [rnd]);
+  const [liveCount, setLiveCount] = React.useState(0);
+  useEffect(() => {
+    const lc = games.filter(g => g.status === 'live').length;
+    setLiveCount(lc);
+    if (onLiveCount) onLiveCount(lc);
+    if (!lc) return;
+    const iv = setInterval(load, 90000);
+    return () => clearInterval(iv);
+  }, [games]);
 
   async function tip(gameId, team) {
     if (!player) { toast('Enter your name first'); return; }
@@ -693,7 +956,7 @@ function SportPanel({ pin, initialTab }) {
                 <span style={{ fontSize:'11px', padding:'3px 8px', borderRadius:'20px', flexShrink:0,
                   background:g.status==='final'?'rgba(34,197,94,.12)':g.status==='live'?'rgba(245,158,11,.12)':'var(--border)',
                   color:g.status==='final'?'var(--success)':g.status==='live'?'var(--warning)':'var(--muted)', fontWeight:600 }}>
-                  {g.status==='final'?'Final':g.status==='live'?'LIVE':g.date?.slice(0,10)||'TBC'}
+                  {g.status === 'live' ? React.createElement('span',{style:{color:'var(--danger)',fontWeight:700}},'LIVE') : g.status==='final'?'Final':g.date?.slice(0,10)||'TBC'}
                 </span>
               </div>
               {g.venue && <div style={{ fontSize:'11px', color:'var(--muted)', marginTop:'4px' }}>📍 {g.venue}</div>}
@@ -982,7 +1245,12 @@ function MessageBubble({ msg }) {
         <div className="msg-role">{msg.role === 'user' ? 'You' : '🐉 Falkor'}</div>
         {time && <div className="msg-timestamp">{time}</div>}
       </div>
-      <div className="msg-bubble" dangerouslySetInnerHTML={{ __html: renderMD(msg.content || '') }}/>
+      {msg.imageData && (
+        <div className="msg-bubble" style={{ padding:'6px' }}>
+          <img src={msg.imageData} alt="attached" style={{ maxWidth:'260px', maxHeight:'200px', borderRadius:'8px', display:'block' }}/>
+        </div>
+      )}
+      {msg.content && <div className="msg-bubble" dangerouslySetInnerHTML={{ __html: renderMD(msg.content || '') }}/>}
     </div>
   );
 }
@@ -1220,6 +1488,55 @@ function App() {
 
   async function doSend() {
     if (!input.trim() && !attachment) return;
+
+    // ── Image attachment → vision endpoint ──────────────────────────────────
+    if (attachment && attachment.type && attachment.type.startsWith('image/')) {
+      const userText = input.trim() || 'What is this?';
+      const imageDataUrl = await new Promise((res, rej) => {
+        const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(attachment);
+      }).catch(() => null);
+      if (!imageDataUrl) { toast('Could not read image'); return; }
+
+      // Strip data: prefix to get raw base64
+      const b64 = imageDataUrl.split(',')[1];
+      const mime = attachment.type;
+
+      // Add user message with image to chat
+      let cid = activeIdRef.current;
+      const exists = convos.find(c => c.id === cid);
+      if (!cid || !exists) {
+        cid = uid();
+        const nc = { id:cid, title:userText.slice(0,40), messages:[], ts:Date.now() };
+        setConvos(prev => [nc, ...prev]);
+        setActiveId(cid); activeIdRef.current = cid;
+      }
+      const userMsg = { id:uid(), role:'user', content:userText, imageData:imageDataUrl, ts:Date.now() };
+      setConvos(prev => prev.map(c => c.id === cid
+        ? { ...c, messages:[...(c.messages||[]), userMsg], title:c.title||userText.slice(0,40) } : c));
+      setInput(''); setAttachment(null); setTyping(true);
+
+      // Call vision endpoint
+      try {
+        const res = await fetch(AGENT_URL + '/vision', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Pin': LS.agentPin() || LS.pin() },
+          body: JSON.stringify({ image_b64: b64, mime_type: mime, prompt: userText, userId: LS.userId() })
+        });
+        const d = await res.json().catch(() => ({}));
+        const reply = d.reply || d.content || (d.ok === false ? 'Vision unavailable — ' + (d.error || 'unknown error') : 'No response');
+        const botMsg = { id:uid(), role:'assistant', content:reply, ts:Date.now() };
+        setConvos(prev => prev.map(c => c.id === cid
+          ? { ...c, messages:[...(c.messages||[]), botMsg] } : c));
+      } catch (e) {
+        const errMsg = { id:uid(), role:'assistant', content:'Vision error: ' + e.message, ts:Date.now() };
+        setConvos(prev => prev.map(c => c.id === cid
+          ? { ...c, messages:[...(c.messages||[]), errMsg] } : c));
+      }
+      setTyping(false);
+      return;
+    }
+
+    // ── Regular text or non-image file → WebSocket ──────────────────────────
     let fc = null;
     if (attachment) fc = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(attachment); }).catch(() => null);
     sendMessage(input, fc);
@@ -1316,6 +1633,8 @@ function App() {
           <button className={'nav-btn'+(view==='sites'?' active':'')} onClick={() => setView('sites')}>🌐</button>
           <button className={'nav-btn'+(view==='tips'?' active':'')} onClick={() => setView('tips')}>🏆</button>
           <button className={'nav-btn'+(view==='history'?' active':'')} onClick={() => setView('history')}>📖</button>
+            <button className={'nav-btn'+(view==='racing'?' active':'')} onClick={() => setView('racing')}>Racing</button>
+          <button className={'nav-btn'+(view==='nrl'?' active':'')} onClick={() => setView('nrl')}>NRL</button>
           <div className="nav-sep"/>
 
           <select className="model-select" value={model} onChange={e => { setModelS(e.target.value); LS.setModel(e.target.value); }}>
@@ -1331,6 +1650,8 @@ function App() {
 
         {view === 'sport'    && <SportPanel pin={LS.agentPin() || LS.pin()}/>}
         {view === 'tips'     && <SportPanel pin={LS.agentPin() || LS.pin()} initialTab="comp"/>}
+        {view === 'racing'   && <RacingPanel pin={LS.agentPin() || LS.pin()}/>}
+        {view === 'nrl'      && <NRLPanel pin={LS.agentPin() || LS.pin()}/>}
         {view === 'sites'    && <SitesPanel/>}
         {view === 'calendar' && <CalendarPanel pin={LS.agentPin() || LS.pin()}/>}
         {view === 'history'  && <HistoryPanel convos={convos} onOpen={id => { setActiveId(id); setView('chat'); }}/>}
@@ -1368,7 +1689,13 @@ function App() {
             <div className="composer">
               {attachment && (
                 <div className="attach-row">
-                  📎 {attachment.name}
+                  {attachment.type && attachment.type.startsWith('image/') ? (
+                    <img src={URL.createObjectURL(attachment)} alt="preview"
+                      style={{ height:'40px', borderRadius:'5px', objectFit:'cover' }}/>
+                  ) : '📎'}
+                  <span style={{ fontSize:'11px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'160px' }}>
+                    {attachment.name || 'image'}
+                  </span>
                   <span className="attach-remove" onClick={() => setAttachment(null)}>✕</span>
                 </div>
               )}
@@ -1380,8 +1707,20 @@ function App() {
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); } }}
                   placeholder="Message Falkor…" rows={1}
                   onInput={e => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }}
+                  onPaste={e => {
+                    const items = e.clipboardData && e.clipboardData.items;
+                    if (!items) return;
+                    for (const item of items) {
+                      if (item.type.startsWith('image/')) {
+                        e.preventDefault();
+                        const file = item.getAsFile();
+                        if (file) setAttachment(file);
+                        return;
+                      }
+                    }
+                  }}
                 />
-                <input id="file-input" type="file" style={{ display:'none' }} onChange={handleFileInput}/>
+                <input id="file-input" type="file" accept="image/*,*/*" style={{ display:'none' }} onChange={handleFileInput}/>
                 <button className="icon-btn" onClick={() => document.getElementById('file-input').click()} title="Attach">📎</button>
                 <button className={'icon-btn'+(voiceEnabled?' active':'')} style={{ fontSize:'15px' }} onClick={() => setShowVoice(true)} title="Voice">🎤</button>
                 <button className="send-btn" onClick={doSend}
@@ -1497,3 +1836,4 @@ function installApp(){if(_deferredInstall){_deferredInstall.prompt();_deferredIn
     });
   }
 };
+
