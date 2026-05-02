@@ -1,8 +1,21 @@
-// falkor-sportcarnival-ai v1.0.0
+// falkor-sportcarnival-ai v1.1.0
 // Backend AI for SportCarnival — draw explanations, result summaries, ladder commentary, team selection, news blurbs
 
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 const AGENT_URL = 'https://falkor-agent.luckdragon.io';
+const SC_DRAW_URL = 'https://sportcarnival.com.au/api/draw';
+const SC_RESULTS_URL = 'https://sportcarnival.com.au/api/results';
+
+async function getLiveSheetData(type) {
+  const url = type === 'results' ? SC_RESULTS_URL : SC_DRAW_URL;
+  try {
+    const r = await fetch(url, { cf: { cacheEverything: true, cacheTtl: 120 } });
+    if (!r.ok) return null;
+    const d = await r.json();
+    return d.error ? null : d;
+  } catch { return null; }
+}
+
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -74,7 +87,51 @@ export default {
       if (path === '/ladder-commentary') return await handleLadderCommentary(body, env);
       if (path === '/team-selection') return await handleTeamSelection(body, env);
       if (path === '/news-blurb') return await handleNewsBlurb(body, env);
-      return corsJson({ error: 'Not found' }, 404);
+      // Live draw from Google Sheet (Phase 34)
+  if (path === '/draw-live' && method === 'POST') {
+    const body = await req.json().catch(() => ({}));
+    const sheetData = await getLiveSheetData('draw');
+    if (!sheetData || !sheetData.rows || !sheetData.rows.length) {
+      return corsJson({ error: 'No draw data available. Set GSHEET_ID on sportcarnival-hub.', hint: 'Share your Google Sheet publicly (File > Share > Publish) and set the GSHEET_ID secret.' }, 503);
+    }
+    const rows = sheetData.rows;
+    const headers = sheetData.headers || [];
+    const tableText = [headers.join(' | ')].concat(rows.slice(0,50).map(r => headers.map(h => r[h]||'').join(' | '))).join('
+');
+    const competition = body.competition || 'District Carnival';
+    const prompt = 'You have live draw data from a Google Sheet for the ' + competition + '. Explain the draw in a clear, friendly way for parents and athletes. Highlight key matchups, timing, and what to expect.
+
+Draw data:
+' + tableText.slice(0, 2000);
+    return await askFalkor(prompt, env);
+  }
+
+  if (path === '/results-live' && method === 'POST') {
+    const body = await req.json().catch(() => ({}));
+    const sheetData = await getLiveSheetData('results');
+    if (!sheetData || !sheetData.rows || !sheetData.rows.length) {
+      return corsJson({ error: 'No results data available. Check GSHEET_ID and ensure Results sheet exists.' }, 503);
+    }
+    const rows = sheetData.rows;
+    const headers = sheetData.headers || [];
+    const tableText = [headers.join(' | ')].concat(rows.slice(0,50).map(r => headers.map(h => r[h]||'').join(' | '))).join('
+');
+    const competition = body.competition || 'District Carnival';
+    const prompt = 'You have live results data from a Google Sheet for the ' + competition + '. Summarise the results clearly — highlight winners, top performances, and any notable moments.
+
+Results data:
+' + tableText.slice(0, 2000);
+    return await askFalkor(prompt, env);
+  }
+
+  if (path === '/sheet-data' && method === 'GET') {
+    const type = new URL(req.url).searchParams.get('type') || 'draw';
+    const data = await getLiveSheetData(type);
+    if (!data) return corsJson({ error: 'No data — check GSHEET_ID secret and sheet publish settings.' }, 503);
+    return corsJson({ ok: true, ...data });
+  }
+
+  return corsJson({ error: 'Not found' }, 404);
     } catch (err) { return corsJson({ error: err.message }, 500); }
   },
 };
