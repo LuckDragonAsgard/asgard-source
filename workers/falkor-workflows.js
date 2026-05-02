@@ -122,12 +122,12 @@ async function runPEWeatherAlert(env) {
   const today = weather.today;
 
   const issues = [];
-  if (c.uv >= 9) issues.push('☀️ UV Index ' + c.uv + ' (extreme — sun protection mandatory)');
-  if (c.temp > 36) issues.push('🌡️ Temperature ' + c.temp + '°C (too hot for vigorous activity)');
-  if (c.temp < 8) issues.push('🥶 Temperature ' + c.temp + '°C (cold — move indoors or warm up extended)');
-  if (c.wind_kmh > 40) issues.push('💨 Wind ' + c.wind_kmh + ' km/h (too windy for outdoor games)');
-  if ((today.rain_mm || 0) > 5) issues.push('🌧️ Rain ' + today.rain_mm + 'mm expected (wet conditions)');
-  if (c.rain_chance > 60) issues.push('🌦️ ' + c.rain_chance + '% chance of rain');
+  if (c.uv >= 9) issues.push('UV Index ' + c.uv + ' (extreme — sun protection mandatory)');
+  if (c.temp > 36) issues.push('Temperature ' + c.temp + '°C (too hot for vigorous activity)');
+  if (c.temp < 8) issues.push('Temperature ' + c.temp + '°C (cold — move indoors or warm up extended)');
+  if (c.wind_kmh > 40) issues.push('Wind ' + c.wind_kmh + ' km/h (too windy for outdoor games)');
+  if ((today.rain_mm || 0) > 5) issues.push('Rain ' + today.rain_mm + 'mm expected (wet conditions)');
+  if (c.rain_chance > 60) issues.push('' + c.rain_chance + '% chance of rain');
 
   const suitable = issues.length === 0;
 
@@ -141,20 +141,20 @@ async function runPEWeatherAlert(env) {
   }).catch(() => {});
 
   if (!suitable) {
-    const html = '<h2>⚠️ PE Weather Alert — Williamstown Primary</h2>' +
+    const html = '<h2>PE Weather Alert — Williamstown Primary</h2>' +
       '<p><strong>Date:</strong> ' + new Date().toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Australia/Melbourne' }) + '</p>' +
       '<h3>Current Conditions</h3><ul>' +
-      '<li>🌡️ Temperature: ' + c.temp + '°C (feels like ' + c.feels_like + '°C)</li>' +
-      '<li>🌤️ Conditions: ' + c.condition + '</li>' +
-      '<li>☀️ UV Index: ' + c.uv + '</li>' +
-      '<li>💨 Wind: ' + c.wind_kmh + ' km/h</li>' +
-      '<li>🌧️ Rain chance: ' + c.rain_chance + '%</li>' +
+      '<li>Temperature: ' + c.temp + '°C (feels like ' + c.feels_like + '°C)</li>' +
+      '<li>Conditions: ' + c.condition + '</li>' +
+      '<li>UV Index: ' + c.uv + '</li>' +
+      '<li>Wind: ' + c.wind_kmh + ' km/h</li>' +
+      '<li>Rain chance: ' + c.rain_chance + '%</li>' +
       '</ul><h3>Issues Detected</h3><ul>' +
       issues.map(function(i) { return '<li>' + i + '</li>'; }).join('') +
       '</ul><p><em>Falkor Workflows — falkor-workflows.luckdragon.io</em></p>';
 
-    await sendEmail(env, { to: PADDY_EMAIL, subject: '⚠️ PE Alert: ' + issues[0], html });
-    await sendPush(env, { title: '⚠️ PE Alert: ' + issues[0], body: 'Check conditions before outdoor PE. ' + issues.join(', '), tag: 'pe-weather' });
+    await sendEmail(env, { to: PADDY_EMAIL, subject: 'PE Alert: ' + issues[0], html });
+    await sendPush(env, { title: 'PE Alert: ' + issues[0], body: 'Check conditions before outdoor PE. ' + issues.join(', '), tag: 'pe-weather' });
     return { sent: true, issues, temp: c.temp, uv: c.uv };
   }
   return { sent: false, suitable: true, temp: c.temp, uv: c.uv, condition: c.condition };
@@ -194,14 +194,14 @@ async function runDailySummary(env) {
     const c = w.current;
     const peNote = w.pe_note || (c.uv >= 9 ? 'High UV — hats mandatory.' : c.temp > 30 ? 'Hot one — consider indoor PE.' : c.rain_chance > 60 ? 'Rain likely today.' : 'All clear for outdoor PE.');
     sections.push(
-      '<h3>🌤️ Weather — Williamstown</h3>' +
+      '<h3>Weather — Williamstown</h3>' +
       '<p>' + c.condition + ', <strong>' + c.temp + '°C</strong> (feels ' + c.feels_like + '°C) · UV <strong>' + c.uv + '</strong> · Wind ' + c.wind_kmh + 'km/h · Rain ' + c.rain_chance + '%</p>' +
       '<p><em>' + peNote + '</em></p>'
     );
   }
 
   // ── Calendar ──
-  var calHtml = '<h3>📅 Calendar</h3>';
+  var calHtml = '<h3>Calendar</h3>';
   var hasCalContent = false;
   if (todayEvents.length > 0) {
     calHtml += '<p><strong>Today:</strong> ' + todayEvents.map(function(e) {
@@ -227,7 +227,7 @@ async function runDailySummary(env) {
       return '<tr><td><strong>' + v.name + '</strong>' + staleness + '</td><td>' + (v.status || '') + '</td><td>$' + ((v.y1 || 0) / 1000).toFixed(0) + 'k</td><td>' + (v.next || '—') + '</td></tr>';
     }).join('');
     sections.push(
-      '<h3>🎯 Top Priorities</h3>' +
+      '<h3>Top Priorities</h3>' +
       '<table style="border-collapse:collapse;width:100%">' +
       '<tr style="background:#f0f0f0"><th style="text-align:left;padding:4px 8px">Venture</th><th>Status</th><th>Y1</th><th>Next action</th></tr>' +
       rows + '</table>'
@@ -237,12 +237,12 @@ async function runDailySummary(env) {
   // ── AFL & Tipping ──
   if (sport && sport.ok) {
     const tipping = sport.tipping_summary || {};
-    var aflHtml = '<h3>🏈 AFL & Tipping</h3>';
+    var aflHtml = '<h3>AFL & Tipping</h3>';
     if (sport.round_description) aflHtml += '<p>' + sport.round_description + '</p>';
     if (sport.todays_games && sport.todays_games.length > 0) {
       sport.todays_games.forEach(function(game) {
         var score = game.score ? ' — <strong>' + game.score + '</strong>' : (game.time ? ' · ' + game.time : '');
-        aflHtml += '<p>🏟️ ' + game.home + ' vs ' + game.away + score + '</p>';
+        aflHtml += '<p>' + game.home + ' vs ' + game.away + score + '</p>';
       });
     } else if (sport.next_game) {
       const ng = sport.next_game;
@@ -253,13 +253,13 @@ async function runDailySummary(env) {
       if (tipping.paddy_rank) aflHtml += ' · Paddy #' + tipping.paddy_rank;
       aflHtml += '</p>';
     }
-    if (sport.family_tips_due) aflHtml += '<p><strong>⚠️ Family tips due today!</strong></p>';
+    if (sport.family_tips_due) aflHtml += '<p><strong>Family tips due today!</strong></p>';
     sections.push(aflHtml);
   }
 
   // ── KBT ──
   if (kbt && kbt.ok) {
-    var kbtHtml = '<h3>🎮 KBT Trivia</h3>';
+    var kbtHtml = '<h3>KBT Trivia</h3>';
     kbtHtml += '<p>Upcoming: <strong>' + (kbt.upcoming_events || 0) + '</strong> events · Bank: <strong>' + (kbt.question_bank_size || '?') + '</strong> questions</p>';
     if (kbt.next_event) kbtHtml += '<p>Next: ' + kbt.next_event + '</p>';
     sections.push(kbtHtml);
@@ -292,19 +292,19 @@ async function runDailySummary(env) {
     ? '<p style="font-style:italic;color:#444;font-size:1.05em;border-left:3px solid #999;padding-left:12px;margin:12px 0">' + opener + '</p>'
     : '';
 
-  const html = '<h2>🐉 Good morning, Paddy! — ' + date + '</h2>' +
+  const html = '<h2>Good morning, Paddy! — ' + date + '</h2>' +
     openerHtml +
     sections.join('\n') +
     '<hr/><p><em>Falkor · <a href="https://falkor.luckdragon.io">falkor.luckdragon.io</a></em></p>';
 
   const pushParts = [];
   if (w) pushParts.push(w.current.temp + '°C UV' + w.current.uv);
-  if (todayEvents.length > 0) pushParts.push('📅 ' + todayEvents.length + ' event' + (todayEvents.length > 1 ? 's' : '') + ' today');
-  if (sport && sport.ok && sport.todays_games && sport.todays_games.length > 0) pushParts.push('🏈 Game day');
+  if (todayEvents.length > 0) pushParts.push(todayEvents.length + ' event' + (todayEvents.length > 1 ? 's' : '') + ' today');
+  if (sport && sport.ok && sport.todays_games && sport.todays_games.length > 0) pushParts.push('Game day');
   const pushBody = pushParts.join(' · ') || 'Morning briefing ready.';
 
-  await sendEmail(env, { to: PADDY_EMAIL, subject: '🐉 Falkor Daily — ' + date, html });
-  await sendPush(env, { title: '🐉 Falkor — ' + date, body: pushBody, tag: 'daily-summary' });
+  await sendEmail(env, { to: PADDY_EMAIL, subject: 'Falkor Daily — ' + date, html });
+  await sendPush(env, { title: 'Falkor — ' + date, body: pushBody, tag: 'daily-summary' });
   // Telegram morning brief (compact <=1000 chars)
   var tgSent = false;
   try {
@@ -400,7 +400,7 @@ async function runSmartAlerts(env) {
             if (rainChance >= 60) {
               var alertKey = 'school_event_rain_' + evt.summary + '_' + evtDate.toDateString();
               if (!(await checkAlertFired(env, alertKey))) {
-                var title = '⛈️ ' + (evt.summary || 'School event') + ' — rain likely!';
+                var title = '' + (evt.summary || 'School event') + ' — rain likely!';
                 var body = daysAway === 0
                   ? 'Today: ' + rainChance + '% rain. Consider a backup plan.'
                   : 'In ' + daysAway + 'd: ' + rainChance + '% rain chance. Plan ahead!';
@@ -429,7 +429,7 @@ async function runSmartAlerts(env) {
         if (kbtKeywords.some(function(k) { return nm.includes(k); })) {
           var alertKey = 'kbt_reminder_' + evt.summary;
           if (!(await checkAlertFired(env, alertKey))) {
-            await sendPush(env, { title: '🎮 KBT tomorrow: ' + (evt.summary || 'Trivia night'), body: 'Prep your questions!', tag: 'kbt-reminder' });
+            await sendPush(env, { title: 'KBT tomorrow: ' + (evt.summary || 'Trivia night'), body: 'Prep your questions!', tag: 'kbt-reminder' });
             await markAlertFired(env, alertKey);
             fired.push({ rule: 'kbt_reminder', event: evt.summary });
           }
@@ -453,7 +453,7 @@ async function runSmartAlerts(env) {
             var kickoff = g.localtime ? new Date(g.localtime).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', timeZone: 'Australia/Melbourne' }) : 'today';
             var opponent = teams.includes('melbourne') ? (g.hteam === 'Melbourne' ? g.ateam : g.hteam) : '?';
             await sendPush(env, {
-              title: '🏈 Dees on today vs ' + opponent,
+              title: 'Dees on today vs ' + opponent,
               body: 'Kick-off ' + kickoff + ' — go Demons!',
               url: 'https://falkor.luckdragon.io',
               tag: 'afl-gameday',
@@ -479,7 +479,7 @@ async function runSmartAlerts(env) {
         }
         if (tippingOpen) {
           await sendPush(env, {
-            title: '🏈 Have you tipped yet?',
+            title: 'Have you tipped yet?',
             body: 'AFL tips are open — get in before lockout!',
             url: 'https://falkor.luckdragon.io',
             tag: 'tipping-reminder',
@@ -502,7 +502,7 @@ async function runSmartAlerts(env) {
         var alertKey = 'race_day_' + (race.name || 'feature') + '_' + new Date(now).toDateString();
         if (!(await checkAlertFired(env, alertKey, 86400000))) {
           await sendPush(env, {
-            title: '🏇 ' + (race.name || 'Feature race') + ' today!',
+            title: (race.name || 'Feature race') + ' today!',
             body: (race.venue || 'Track') + ' · ' + (race.time || '') + (race.favourite ? ' · Fav: ' + race.favourite : ''),
             url: 'https://falkor.luckdragon.io',
             tag: 'race-day',
@@ -529,7 +529,7 @@ async function runSmartAlerts(env) {
         var alertKey = 'venture_nudge_' + top.name + '_' + new Date(now).toDateString();
         if (!(await checkAlertFired(env, alertKey, 86400000 * 7))) {
           await sendPush(env, {
-            title: '💡 ' + top.name + ' needs attention',
+            title: top.name + ' needs attention',
             body: daysSince + ' days since last update. Next: ' + (top.next || 'check dashboard'),
             url: 'https://falkor-dashboard.luckdragon.io',
             tag: 'venture-nudge',
@@ -561,7 +561,7 @@ async function runSmartAlerts(env) {
               if (!(await checkAlertFired(env, kickKey, 3 * 3600 * 1000))) {
                 var opp = (ht.includes('essendon') || ht.includes('bombers')) ? g.ateam : g.hteam;
                 await sendPush(env, {
-                  title: '🔴 Bombers about to kick off!',
+                  title: 'Bombers about to kick off!',
                   body: 'Essendon vs ' + opp + ' — ' + Math.round(minsAway) + ' mins away. Go Bombers.',
                   tag: 'afl-kickoff', url: 'https://falkor.luckdragon.io',
                 });
@@ -581,7 +581,7 @@ async function runSmartAlerts(env) {
       var tipKey = 'footy_tip_deadline_' + new Date(now).toDateString();
       if (!(await checkAlertFired(env, tipKey, 4 * 3600 * 1000))) {
         await sendPush(env, {
-          title: '⏰ Footy tips close tonight!',
+          title: ' Footy tips close tonight!',
           body: 'Get your tips in before the first Thursday game. Tick tock.',
           tag: 'tips-deadline', url: 'https://falkor.luckdragon.io',
         });
@@ -605,7 +605,7 @@ async function runSmartAlerts(env) {
           var calKey = 'cal_15min_' + (tevt.id || (tevt.summary || ci)) + '_' + Math.floor(tevtMs / 3600000);
           if (!(await checkAlertFired(env, calKey, 30 * 60 * 1000))) {
             await sendPush(env, {
-              title: '📅 In ~' + Math.round(minsTo) + ' mins: ' + (tevt.summary || 'Event'),
+              title: 'In ~' + Math.round(minsTo) + ' mins: ' + (tevt.summary || 'Event'),
               body: tevt.location ? 'At ' + tevt.location : 'Starting soon',
               tag: 'calendar-reminder', url: 'https://falkor.luckdragon.io',
             });
@@ -634,7 +634,7 @@ async function runSmartAlerts(env) {
         const stateLabel = state.label || state.mode;
         await sendEmail(env, {
           to: PADDY_EMAIL,
-          subject: '🔔 Falkor: ' + fired.length + ' alert' + (fired.length > 1 ? 's' : '') + ' fired',
+          subject: 'Falkor: ' + fired.length + ' alert' + (fired.length > 1 ? 's' : '') + ' fired',
           html: '<h2>Falkor Smart Alerts</h2><ul>' + alertLines + '</ul><p style="color:#888;font-size:12px">Sent at ' + new Date().toLocaleString('en-AU', { timeZone: 'Australia/Melbourne' }) + ' — you are: ' + stateLabel + '</p>',
         });
       } catch (emailErr) { console.warn('Email delivery failed:', emailErr.message); }
@@ -817,7 +817,7 @@ async function runTaskExecutor(env) {
         var topResults = searchResults.slice(0, 5).map(function(r2, i2) {
           return (i2+1) + '. ' + (r2.title || '') + '\n   ' + (r2.snippet || r2.content || '').slice(0, 180);
         }).join('\n');
-        result = ('🔍 ' + task.query + '\n\n' + (searchAnswer ? '📌 ' + searchAnswer + '\n\n' : '') + (topResults ? '📰 Top results:\n' + topResults : '')).slice(0, 1800);
+        result = (task.query + '\n\n' + (searchAnswer ? searchAnswer + '\n\n' : '') + (topResults ? 'Top results:\n' + topResults : '')).slice(0, 1800);
         break;
       }
 
@@ -836,8 +836,8 @@ async function runTaskExecutor(env) {
           const to = params.to || 'pgallivan@outlook.com';
           await sendEmail(env, {
             to,
-            subject: '🏈 Tipping Report — ' + new Date().toLocaleDateString('en-AU'),
-            html: '<h2>🏈 Family Tipping Standings</h2><ol>' + entries.map(function(e) {
+            subject: 'Tipping Report — ' + new Date().toLocaleDateString('en-AU'),
+            html: '<h2>Family Tipping Standings</h2><ol>' + entries.map(function(e) {
               return '<li><strong>' + e.name + '</strong> — ' + e.points + ' pts</li>';
             }).join('') + '</ol>',
           });
@@ -855,8 +855,8 @@ async function runTaskExecutor(env) {
         }).join('\n');
         await sendEmail(env, {
           to: 'pgallivan@outlook.com',
-          subject: '🎯 Venture Priorities — ' + new Date().toLocaleDateString('en-AU'),
-          html: '<h2>🎯 Top Priorities</h2><table style=\"border-collapse:collapse\"><tr style=\"background:#f0f0f0\"><th style=\"padding:6px 12px;text-align:left\">Venture</th><th>Status</th><th>Next Action</th></tr>' +
+          subject: 'Venture Priorities — ' + new Date().toLocaleDateString('en-AU'),
+          html: '<h2>Top Priorities</h2><table style=\"border-collapse:collapse\"><tr style=\"background:#f0f0f0\"><th style=\"padding:6px 12px;text-align:left\">Venture</th><th>Status</th><th>Next Action</th></tr>' +
             ventures.map(function(v) {
               return '<tr><td style=\"padding:6px 12px\"><strong>' + v.name + '</strong></td><td>' + (v.status||'—') + '</td><td>' + (v.next||'—') + '</td></tr>';
             }).join('') + '</table>',
@@ -877,8 +877,8 @@ async function runTaskExecutor(env) {
           result = 'Generated ' + kbtData.questions.length + ' questions on "' + topic + '"';
           await sendEmail(env, {
             to: 'pgallivan@outlook.com',
-            subject: '🎮 KBT Questions — ' + topic,
-            html: '<h2>🎮 KBT Questions: ' + topic + '</h2><ol>' +
+            subject: 'KBT Questions — ' + topic,
+            html: '<h2>KBT Questions: ' + topic + '</h2><ol>' +
               kbtData.questions.map(function(q) {
                 return '<li><strong>' + (q.question || q) + '</strong>' + (q.answer ? '<br><em>Answer: ' + q.answer + '</em>' : '') + '</li>';
               }).join('') + '</ol>',
@@ -915,7 +915,7 @@ async function runTaskExecutor(env) {
   // Notify via push + email
   if (task.notify) {
     await sendPush(env, {
-      title: error ? '❌ Task failed: ' + task.title : '✅ Task done: ' + task.title,
+      title: error ? 'Task failed: ' + task.title : ' Task done: ' + task.title,
       body: (result || '').slice(0, 120),
       url: 'https://falkor.luckdragon.io',
       tag: 'task-' + task.id,
@@ -923,8 +923,8 @@ async function runTaskExecutor(env) {
     if (!error) {
       await sendEmail(env, {
         to: 'pgallivan@outlook.com',
-        subject: '✅ Falkor task done: ' + task.title,
-        html: '<h2>✅ ' + task.title + '</h2><pre style=\"white-space:pre-wrap;font-family:sans-serif\">' + (result || '') + '</pre><p><em>Completed at ' + new Date().toLocaleString('en-AU', {timeZone:'Australia/Melbourne'}) + '</em></p>',
+        subject: 'Falkor task done: ' + task.title,
+        html: '<h2>' + task.title + '</h2><pre style=\"white-space:pre-wrap;font-family:sans-serif\">' + (result || '') + '</pre><p><em>Completed at ' + new Date().toLocaleString('en-AU', {timeZone:'Australia/Melbourne'}) + '</em></p>',
       }).catch(function() {});
     }
   }
@@ -966,7 +966,7 @@ async function runScoreWatcher(env) {
               await fetch(PUSH_URL + '/send-all', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-Pin': env.AGENT_PIN },
-                body: JSON.stringify({ title: '🏈 ' + g.home + ' vs ' + g.away, body: g.home + ' ' + newHome + ' – ' + newAway + ' ' + g.away, tag: 'afl-live-' + g.id, url: 'https://falkor.luckdragon.io/?intent=afl' }),
+                body: JSON.stringify({ title: g.home + ' vs ' + g.away, body: g.home + ' ' + newHome + ' – ' + newAway + ' ' + g.away, tag: 'afl-live-' + g.id, url: 'https://falkor.luckdragon.io/?intent=afl' }),
               });
               pushed.push(g.id);
             } catch(e) {}
@@ -990,7 +990,7 @@ async function runWeeklySummary(env) {
   try { var r3 = await fetch(SPORT_URL + '/afl/round?year=' + year + '&round=' + (round+1) + '&pin=' + env.AGENT_PIN); var d3 = await r3.json(); upcomingGames = Array.isArray(d3) ? d3 : (d3.games || []); } catch(e) {}
   var season = (compData && compData.season) ? compData.season : [];
   var standingsRows = season.map(function(p, i) {
-    var medal = i === 0 ? ' 🥇' : i === 1 ? ' 🥈' : i === 2 ? ' 🥉' : '';
+    var medal = i === 0 ? ' (1st)' : i === 1 ? ' (2nd)' : i === 2 ? ' (3rd)' : '';
     return '<tr style="background:' + (i%2===0?'#f9f9fc':'#fff') + '"><td style="padding:8px 12px">' + (i+1) + medal + '</td><td style="padding:8px 12px;font-weight:' + (i===0?'700':'400') + '">' + p.player + '</td><td style="padding:8px 12px;text-align:center;color:#22c55e;font-weight:600">' + p.correct + '</td><td style="padding:8px 12px;text-align:center">' + p.total + '</td><td style="padding:8px 12px;text-align:center;color:#72728a">' + p.pct + '%</td></tr>';
   }).join('');
   var resultsRows = lastRoundGames.filter(function(g){return g.status==='final';}).map(function(g) {
@@ -999,12 +999,12 @@ async function runWeeklySummary(env) {
   var upcomingRows = upcomingGames.slice(0,6).map(function(g) {
     return '<tr><td style="padding:6px 12px">' + g.home + '</td><td style="padding:6px 12px;text-align:center;color:#72728a">vs</td><td style="padding:6px 12px">' + g.away + '</td><td style="padding:6px 4px;font-size:12px;color:#72728a">' + ((g.date||'').slice(0,10)) + '</td></tr>';
   }).join('');
-  var html = '<!DOCTYPE html><html><body style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif;background:#f4f4f8;margin:0;padding:24px"><div style="max-width:600px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08)"><div style="background:linear-gradient(135deg,#6c63ff,#a78bfa);padding:28px 32px;color:#fff"><div style="font-size:28px;margin-bottom:4px">🐉 Falkor</div><h1 style="margin:0;font-size:22px;font-weight:800">Weekly AFL Summary</h1><p style="margin:4px 0 0;opacity:.8">Round ' + round + ' wrap-up</p></div><div style="padding:28px 32px">'
+  var html = '<!DOCTYPE html><html><body style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif;background:#f4f4f8;margin:0;padding:24px"><div style="max-width:600px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08)"><div style="background:linear-gradient(135deg,#6c63ff,#a78bfa);padding:28px 32px;color:#fff"><div style="font-size:28px;margin-bottom:4px"> Falkor</div><h1 style="margin:0;font-size:22px;font-weight:800">Weekly AFL Summary</h1><p style="margin:4px 0 0;opacity:.8">Round ' + round + ' wrap-up</p></div><div style="padding:28px 32px">'
     + (season.length ? '<h2 style="font-size:16px;font-weight:700;margin:0 0 12px">&#127942; Tips Leaderboard</h2><table style="width:100%;border-collapse:collapse;margin-bottom:28px"><thead><tr style="background:#f4f4f8"><th style="padding:8px 12px;text-align:left;font-size:12px;color:#72728a">#</th><th style="padding:8px 12px;text-align:left;font-size:12px;color:#72728a">Player</th><th style="padding:8px 12px;text-align:center;font-size:12px;color:#72728a">Correct</th><th style="padding:8px 12px;text-align:center;font-size:12px;color:#72728a">Total</th><th style="padding:8px 12px;text-align:center;font-size:12px;color:#72728a">%</th></tr></thead><tbody>' + standingsRows + '</tbody></table>' : '')
     + (resultsRows ? '<h2 style="font-size:16px;font-weight:700;margin:0 0 12px">&#128203; Round ' + round + ' Results</h2><table style="width:100%;border-collapse:collapse;margin-bottom:28px"><tbody>' + resultsRows + '</tbody></table>' : '')
     + (upcomingRows ? '<h2 style="font-size:16px;font-weight:700;margin:0 0 12px">&#128197; Round ' + (round+1) + ' Fixtures</h2><table style="width:100%;border-collapse:collapse;margin-bottom:28px"><tbody>' + upcomingRows + '</tbody></table>' : '')
-    + '<div style="background:#f4f4f8;border-radius:10px;padding:16px 20px"><p style="margin:0;font-size:13px;color:#72728a">Submit Round ' + (round+1) + ' tips: <a href="https://falkor.luckdragon.io/?intent=tips" style="color:#6c63ff;font-weight:600">falkor.luckdragon.io</a></p></div></div><div style="padding:16px 32px;background:#f4f4f8;text-align:center"><p style="margin:0;font-size:12px;color:#72728a">Sent by 🐉 Falkor</p></div></div></body></html>';
-  await sendEmail(env, { to: PADDY_EMAIL, subject: '🐉 Falkor AFL Weekly — Round ' + round + ' wrap-up', html: html });
+    + '<div style="background:#f4f4f8;border-radius:10px;padding:16px 20px"><p style="margin:0;font-size:13px;color:#72728a">Submit Round ' + (round+1) + ' tips: <a href="https://falkor.luckdragon.io/?intent=tips" style="color:#6c63ff;font-weight:600">falkor.luckdragon.io</a></p></div></div><div style="padding:16px 32px;background:#f4f4f8;text-align:center"><p style="margin:0;font-size:12px;color:#72728a">Sent by Falkor</p></div></div></body></html>';
+  await sendEmail(env, { to: PADDY_EMAIL, subject: 'Falkor AFL Weekly — Round ' + round + ' wrap-up', html: html });
   return { ok: true, round: round, standings: season.length, results: lastRoundGames.filter(function(g){return g.status==='final';}).length };
 }
 
@@ -1029,7 +1029,7 @@ async function runRacingWeeklySummary(env) {
 
   // Medal rows
   var lbRows = leaderboard.map(function(p, i) {
-    var medal = i === 0 ? ' 🥇' : i === 1 ? ' 🥈' : i === 2 ? ' 🥉' : '';
+    var medal = i === 0 ? ' (1st)' : i === 1 ? ' (2nd)' : i === 2 ? ' (3rd)' : '';
     var isLeader = i === 0;
     return '<tr style="background:' + (i%2===0?'#f9f9fc':'#fff') + '">' +
       '<td style="padding:8px 12px">' + (i+1) + medal + '</td>' +
@@ -1045,11 +1045,11 @@ async function runRacingWeeklySummary(env) {
   var html = '<!DOCTYPE html><html><body style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#f4f4f8;margin:0;padding:24px">' +
     '<div style="max-width:600px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08)">' +
     '<div style="background:linear-gradient(135deg,#f59e0b,#ef4444);padding:28px 32px;color:#fff">' +
-    '<div style="font-size:28px;margin-bottom:4px">🏇 Falkor Racing</div>' +
+    '<div style="font-size:28px;margin-bottom:4px">Falkor Racing</div>' +
     '<h1 style="margin:0;font-size:22px;font-weight:800">Weekly Racing Leaderboard</h1>' +
     '<p style="margin:4px 0 0;opacity:.85">' + date + '</p></div>' +
     '<div style="padding:28px 32px">' +
-    '<p style="margin:0 0 16px;color:#444">Leader this week: <strong>' + leader.player + '</strong> with ' + leader.wins + ' winner' + (leader.wins !== 1 ? 's' : '') + ' from ' + leader.total + ' tips (' + leader.pct + '% strike rate) 🎉</p>' +
+    '<p style="margin:0 0 16px;color:#444">Leader this week: <strong>' + leader.player + '</strong> with ' + leader.wins + ' winner' + (leader.wins !== 1 ? 's' : '') + ' from ' + leader.total + ' tips (' + leader.pct + '% strike rate) </p>' +
     '<table style="width:100%;border-collapse:collapse;margin-bottom:24px">' +
     '<thead><tr style="background:#f4f4f8">' +
     '<th style="padding:8px 12px;text-align:left;font-size:12px;color:#72728a">#</th>' +
@@ -1064,12 +1064,12 @@ async function runRacingWeeklySummary(env) {
     '<a href="https://falkor.luckdragon.io/?intent=racing" style="color:#f59e0b;font-weight:600">falkor.luckdragon.io</a></p>' +
     '</div></div>' +
     '<div style="padding:16px 32px;background:#f4f4f8;text-align:center">' +
-    '<p style="margin:0;font-size:12px;color:#72728a">Sent by 🐉 Falkor · Racing Tips</p>' +
+    '<p style="margin:0;font-size:12px;color:#72728a">Sent by Falkor · Racing Tips</p>' +
     '</div></div></body></html>';
 
-  await sendEmail(env, { to: PADDY_EMAIL, subject: '🏇 Racing Leaderboard — ' + date, html: html });
+  await sendEmail(env, { to: PADDY_EMAIL, subject: 'Racing Leaderboard — ' + date, html: html });
   await sendPush(env, {
-    title: '🏇 Weekly racing wrap — ' + leader.player + ' leads!',
+    title: 'Weekly racing wrap — ' + leader.player + ' leads!',
     body: leader.player + ': ' + leader.wins + ' wins from ' + leader.total + ' tips (' + leader.pct + '%)',
     url: 'https://falkor.luckdragon.io/?intent=racing',
     tag: 'racing-weekly',
@@ -1113,7 +1113,7 @@ async function runRacingResults(env) {
 
   // Build email
   var lbRows = leaderboard.map(function(p, i) {
-    var medal = i === 0 ? ' 🥇' : i === 1 ? ' 🥈' : i === 2 ? ' 🥉' : '';
+    var medal = i === 0 ? ' (1st)' : i === 1 ? ' (2nd)' : i === 2 ? ' (3rd)' : '';
     return '<tr style="background:' + (i%2===0?'#f9f9fc':'#fff') + '">' +
       '<td style="padding:8px 12px">' + (i+1) + medal + '</td>' +
       '<td style="padding:8px 12px;font-weight:' + (i===0?'700':'400') + '">' + p.player + '</td>' +
@@ -1128,12 +1128,12 @@ async function runRacingResults(env) {
   if (scoreResult && scoreResult.scored > 0) {
     scoreHtml = '<h3 style="font-size:15px;font-weight:700;margin:0 0 8px">Today\'s Results (' + today + ')</h3>' +
       '<p style="color:#444;margin:0 0 20px">Scored ' + scoreResult.scored + ' tips — ' +
-      (scoreResult.winners || 0) + ' winners 🎉</p>';
+      (scoreResult.winners || 0) + ' winners</p>';
   }
 
   var html = '<div style="font-family:-apple-system,sans-serif;max-width:580px;margin:0 auto">' +
     '<div style="background:linear-gradient(135deg,#f59e0b,#ef4444);padding:24px 28px;border-radius:12px 12px 0 0;color:#fff">' +
-    '<div style="font-size:24px;margin-bottom:4px">🏇 Falkor Racing</div>' +
+    '<div style="font-size:24px;margin-bottom:4px">Falkor Racing</div>' +
     '<h1 style="margin:0;font-size:20px;font-weight:800">Racing Tips Update</h1>' +
     '<p style="margin:4px 0 0;opacity:.85">' + today + '</p></div>' +
     '<div style="background:#fff;padding:24px 28px;border-radius:0 0 12px 12px;box-shadow:0 4px 20px rgba(0,0,0,.08)">' +
@@ -1164,7 +1164,7 @@ async function runRacingResults(env) {
   }
 
   await sendPush(env, {
-    title: '🏇 Racing tips scored — ' + today,
+    title: 'Racing tips scored — ' + today,
     body: pushBody,
     url: 'https://falkor.luckdragon.io/?intent=racing',
     tag: 'racing-results',
@@ -1172,7 +1172,7 @@ async function runRacingResults(env) {
 
   await sendEmail(env, {
     to: PADDY_EMAIL,
-    subject: '🏇 Racing Tips Update — ' + today,
+    subject: 'Racing Tips Update — ' + today,
     html: html,
   });
 
