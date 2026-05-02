@@ -15,7 +15,7 @@
 //
 // Bindings: DB (asgard-prod), PROJECTS_DB (project-hub-db), RESEND_API_KEY, AGENT_PIN, WEB_SERVICE (falkor-web)
 
-const VERSION = '3.2.0';
+const VERSION = '3.3.0';
 const WORKER_NAME = 'falkor-workflows';
 const PUSH_URL = 'https://falkor-push.luckdragon.io';
 const SPORT_URL = 'https://falkor-sport.luckdragon.io';
@@ -648,6 +648,74 @@ async function runSmartAlerts(env) {
       }
     }
   }
+
+  // ── Phase 45: AI-powered Jarvis insight layer ──────────────────────────────
+  // Runs once per 30 mins regardless of rule firings — adds ambient intelligence
+  try {
+    var aiInsightKey = 'ai_insights_' + Math.floor(Date.now() / (30 * 60 * 1000));
+    if (!(await checkAlertFired(env, aiInsightKey, 29 * 60 * 1000))) {
+      // Build compact context for AI
+      var ctxParts = [];
+      var nowAESTx = new Date(Date.now() + 10 * 3600 * 1000);
+      ctxParts.push('Time: ' + nowAESTx.toLocaleString('en-AU', { timeZone: 'Australia/Melbourne' }));
+      ctxParts.push('Paddy is: ' + paddyState.label);
+
+      // Weather
+      var wxCtx = await getWeather(env, WPS_LAT, WPS_LON).catch(function() { return null; });
+      if (wxCtx && wxCtx.current) { ctxParts.push('Weather: ' + wxCtx.current.temp + 'C ' + wxCtx.current.condition + ' UV' + wxCtx.current.uv + ' Rain' + wxCtx.current.rain_chance + '%'); }
+
+      // Calendar
+      var calCtxResp = await fetch(CALENDAR_URL + '/today', { headers: { 'X-Pin': env.AGENT_PIN } }).catch(function() { return null; });
+      if (calCtxResp && calCtxResp.ok) {
+        var calCtxData = await calCtxResp.json().catch(function() { return {}; });
+        var evtNames = (calCtxData.events || []).map(function(e) { return (e.summary || e.title || ''); }).filter(Boolean);
+        ctxParts.push(evtNames.length > 0 ? 'Calendar today: ' + evtNames.join(', ') : 'Calendar: nothing today');
+      }
+
+      // Sport
+      var spCtxResp = await fetch(SPORT_URL + '/summary', { headers: { 'X-Pin': env.AGENT_PIN } }).catch(function() { return null; });
+      if (spCtxResp && spCtxResp.ok) {
+        var spCtx = await spCtxResp.json().catch(function() { return {}; });
+        if (spCtx.round_description) ctxParts.push('AFL: ' + spCtx.round_description);
+        var tipCtx = spCtx.tipping_summary || {};
+        if (tipCtx.leader) ctxParts.push('Tipping leader: ' + tipCtx.leader + (tipCtx.paddy_rank ? ', Paddy rank: ' + tipCtx.paddy_rank : ''));
+        if (spCtx.family_tips_due) ctxParts.push('AFL tips due today!');
+      }
+
+      // Top venture
+      var vcCtx = await getTopVentures(env, 1).catch(function() { return []; });
+      if (vcCtx && vcCtx.length > 0) { ctxParts.push('Top venture: ' + vcCtx[0].name + ' (' + (vcCtx[0].status || 'active') + '), next: ' + (vcCtx[0].next || 'TBD')); }
+
+      // Recently fired rules
+      if (fired.length > 0) { ctxParts.push('Rules just fired: ' + fired.map(function(a){ return a.rule; }).join(', ')); }
+
+      var ctxStr = ctxParts.join('. ');
+      var aiPrompt = 'You are Falkor, a Jarvis-style AI assistant. Based on this real-time context, generate 0-3 concise actionable insights for Paddy RIGHT NOW. Each insight must be specific, useful, and under 80 chars. Skip generic advice. If nothing is worth saying, return empty array. Context: ' + ctxStr + '. Respond ONLY with a JSON array of strings e.g. ["insight 1","insight 2"] or [].';
+
+      var aiRes = await fetch('https://asgard-ai.luckdragon.io/chat/smart', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Pin': env.AGENT_PIN },
+        body: JSON.stringify({ message: aiPrompt, model: 'groq-fast', max_tokens: 200 }),
+      }).catch(function() { return null; });
+
+      if (aiRes && aiRes.ok) {
+        var aiData = await aiRes.json().catch(function() { return {}; });
+        var aiReply = aiData.reply || aiData.text || '';
+        // Extract JSON array from reply
+        var arrMatch = aiReply.match(/\[.*?\]/s);
+        if (arrMatch) {
+          var insights = JSON.parse(arrMatch[0]);
+          if (Array.isArray(insights) && insights.length > 0) {
+            var tgInsight = '\u{1F9E0} <b>Falkor Insights</b>\n' + insights.map(function(s, i) { return (i+1) + '. ' + s; }).join('\n');
+            await sendTelegram(env, tgInsight).catch(function() {});
+            await markAlertFired(env, aiInsightKey);
+            fired.push({ rule: 'ai_insights', count: insights.length });
+          }
+        }
+      }
+    }
+  } catch(aiErr) { console.warn('AI insights layer:', aiErr.message); }
+
   return { fired, total: fired.length };
 }
 
