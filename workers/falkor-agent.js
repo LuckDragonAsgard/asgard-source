@@ -867,8 +867,8 @@ export default {
     }
 
     const userId = request.headers.get('X-User-Id') || url.searchParams.get('uid') || 'paddy';
-    const id = env.AGENT.idFromName(userId);
-    const stub = env.AGENT.get(id);
+    const id = env.FALKOR_AGENT.idFromName(userId);
+    const stub = env.FALKOR_AGENT.get(id);
     return stub.fetch(request);
   },
 };
