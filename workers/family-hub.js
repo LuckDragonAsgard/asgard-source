@@ -1491,6 +1491,8 @@ if (urlInvite) {
 
 // ─── APP INIT ────────────────────────────────────────────────────────────────
 async function startApp() {
+  // Apply feature toggles after a short delay (after allUsers loads)
+  setTimeout(applyAllFeatureToggles, 2000);
   const me = await api('/api/auth/me');
   if (me.error) { session = null; localStorage.removeItem('fh_session'); return; }
   currentUser = me;
