@@ -22,7 +22,7 @@ const JSON_MANIFEST = JSON.stringify({
 });
 
 const SW_CODE = `
-const CACHE = 'falkor-v9.6.0';
+const CACHE = 'falkor-v9.7.0';
 const CACHE_URLS = ['/'];
 
 self.addEventListener('install', e => {
@@ -111,7 +111,7 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === '/health') {
-      return new Response(JSON.stringify({status:'ok',version:'9.6.0',worker:'falkor-ui'}), {
+      return new Response(JSON.stringify({status:'ok',version:'9.7.0',worker:'falkor-ui'}), {
         headers: {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}
       });
     }
@@ -131,6 +131,8 @@ export default {
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Falkor</title>
 <link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/icon-192.png">
 <meta name="theme-color" content="#6c63ff">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -1268,7 +1270,14 @@ function TypingIndicator() {
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 function App() {
-  const [user, setUser] = useState(() => { try { return JSON.parse(localStorage.getItem('falkor.user') || 'null'); } catch { return null; } });
+  const [user, setUser] = useState(() => {
+    try {
+      const _u = JSON.parse(localStorage.getItem('falkor.user') || 'null');
+      // If stale session has no agentPin, force fresh login so WS auth works
+      if (_u && !localStorage.getItem('falkor.agentPin')) { localStorage.removeItem('falkor.user'); return null; }
+      return _u;
+    } catch { return null; }
+  });
   const [view, setView] = useState('chat');
   const [convos, setConvos] = useState(LS.convos);
   const [activeId, setActiveId] = useState(() => localStorage.getItem('falkor.activeId') || '');
@@ -1367,7 +1376,7 @@ function App() {
             if (i >= fullText.length) {
               clearInterval(streamTimerRef.current); streamTimerRef.current = null;
               if (drivingModeRef.current) { setVoiceReply(fullText); speakText(fullText); }
-              else if (voiceEnabledRef.current && !showVoiceRef.current) speakText(fullText);
+              else if (showVoiceRef.current || voiceEnabledRef.current) speakText(fullText);
             }
           }, 18);
         }
@@ -1416,10 +1425,10 @@ function App() {
         const analyser = ctx.createAnalyser(); analyser.fftSize = 256; analyserRef.current = analyser;
         const src = ctx.createMediaElementSource(audio); src.connect(analyser); analyser.connect(ctx.destination);
       } catch {}
-      audio.onended = () => { setVoiceState('idle'); URL.revokeObjectURL(url); if (drivingModeRef.current) setTimeout(() => { if (drivingModeRef.current) startListening(); }, 600); };
-      audio.onerror = () => { setVoiceState('idle'); if (drivingModeRef.current) setTimeout(() => { if (drivingModeRef.current) startListening(); }, 600); };
-      audio.play().catch(() => { setVoiceState('idle'); if (drivingModeRef.current) setTimeout(() => { if (drivingModeRef.current) startListening(); }, 600); });
-    } catch { setVoiceState('idle'); if (drivingModeRef.current) setTimeout(() => { if (drivingModeRef.current) startListening(); }, 600); }
+      audio.onended = () => { setVoiceState('idle'); URL.revokeObjectURL(url); if (drivingModeRef.current) setTimeout(() => { if (drivingModeRef.current) startListening(); }, 600); else if (showVoiceRef.current) setTimeout(() => { if (showVoiceRef.current) startListening(); }, 700); };
+      audio.onerror = () => { setVoiceState('idle'); if (drivingModeRef.current) setTimeout(() => { if (drivingModeRef.current) startListening(); }, 600); else if (showVoiceRef.current) setTimeout(() => { if (showVoiceRef.current) startListening(); }, 700); };
+      audio.play().catch(() => { setVoiceState('idle'); if (drivingModeRef.current) setTimeout(() => { if (drivingModeRef.current) startListening(); }, 600); else if (showVoiceRef.current) setTimeout(() => { if (showVoiceRef.current) startListening(); }, 700); });
+    } catch { setVoiceState('idle'); if (drivingModeRef.current) setTimeout(() => { if (drivingModeRef.current) startListening(); }, 600); else if (showVoiceRef.current) setTimeout(() => { if (showVoiceRef.current) startListening(); }, 700); }
   }
 
   // ── startListening ──
