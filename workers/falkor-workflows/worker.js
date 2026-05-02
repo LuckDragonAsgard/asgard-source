@@ -1,4 +1,4 @@
-// falkor-workflows v2.2.0 — Scheduled workflows + Jarvis-level autonomy
+// falkor-workflows v2.7.0 — Fix dayOfWeek hoisting bug + NRL auto-scoring
 // Cron: 0 21 * * * (7am AEST), 30 21 * * * (7:30am AEST), 0 */2 * * * (every 2h)
 //
 // Scheduled jobs:
@@ -1014,8 +1014,10 @@ async function runRacingResults(env) {
 
 // ─── Cron dispatcher ──────────────────────────────────────────────────────────
 async function runScheduled(cron, env) {
-  const hour = new Date().getUTCHours();
-  const minute = new Date().getUTCMinutes();
+  const now = new Date();
+  const hour = now.getUTCHours();
+  const minute = now.getUTCMinutes();
+  const dayOfWeek = now.getUTCDay();
 
   // Smart rules run every cron tick
   await runSmartAlerts(env).catch(function(e) { console.warn('smart alerts:', e.message); });
@@ -1031,6 +1033,22 @@ async function runScheduled(cron, env) {
 
   // NRL weekly summary — Thursday 9pm UTC = Friday 7am AEST (after Thursday night football)
   if (dayOfWeek === 4 && hour === 21 && minute < 15) {
+    // Score this round's tips first
+    var season = new Date().getUTCFullYear();
+    try {
+      var drawResp = await fetch(SPORT_URL + '/nrl/draw?season=' + season, { headers: { 'X-Pin': env.AGENT_PIN || '' } });
+      if (drawResp.ok) {
+        var drawData = await drawResp.json();
+        var round = drawData.round;
+        if (round) {
+          await fetch(SPORT_URL + '/nrl/score', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Pin': env.AGENT_PIN || '' },
+            body: JSON.stringify({ season, round })
+          });
+        }
+      }
+    } catch(e) { console.warn('NRL score before summary:', e.message); }
     var nrlSum = await runNRLWeeklySummary(env).catch(function(e) { return { ok: false, error: e.message }; });
     await logRun(env, 'nrl_weekly_summary', nrlSum);
   }
@@ -1042,7 +1060,6 @@ async function runScheduled(cron, env) {
   }
 
   // Weekly summary — Monday 10pm UTC = Tuesday 8am AEST
-  var dayOfWeek = new Date().getUTCDay();
   if (dayOfWeek === 1 && hour === 22 && minute < 15) {
     var wSum = await runWeeklySummary(env).catch(function(e) { return { ok: false, error: e.message }; });
     await logRun(env, 'weekly_summary', wSum);
@@ -1195,4 +1212,5 @@ export default {
     return json({ error: 'Not found', path }, 404);
   },
 };
-
+
+
