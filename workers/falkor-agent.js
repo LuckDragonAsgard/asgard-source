@@ -1,5 +1,5 @@
 
-// falkor-agent v2.4.0 — Phase 58 vision endpoint, NRL context, no-emoji, Aeneas profile
+// falkor-agent v2.5.0 — Phase 60 screen vision: screenshot → /vision chain
 // v1.7.0 adds:
 //   1. Live context pre-loader — fetches weather/calendar/sport/tips before first reply
 //   2. Auto-memory — every 5 turns, Haiku extracts memorable facts → falkor-brain
@@ -112,7 +112,7 @@ function routeIntent(text) {
     return { agent: 'brain', action: 'recall' };
   if (/\b(search|look up|find|google|what is|who is|latest|news|current|today's|recent)\b/.test(t) && t.length < 200)
     return { agent: 'web', action: 'search' };
-  if (/\b(open app|open program|take screenshot|screenshot|click|type on screen|computer control|run command|show on screen|my computer|desktop task)\b/.test(t))
+  if (/\b(open app|open program|take screenshot|screenshot|click|type on screen|computer control|run command|show on screen|my computer|desktop task|what.s on my screen|see my screen|look at my screen|what do you see|what am i looking at|analyse my screen|check my screen|read my screen|screen capture|what.s on screen)\b/.test(t))
     return { agent: 'desktop', action: 'command' };
   return null;
 }
@@ -144,11 +144,41 @@ async function callSubAgent(agentKey, action, text, pin, aiPin) {
           method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
           body: JSON.stringify({ query: text }),
         }).then(r => r.ok ? r.json() : null);
-      case 'desktop':
+      case 'desktop': {
+        // Check if this is a screen vision request
+        const isScreenVision = /screenshot|what.s on.*(screen|display)|see.*screen|look.*screen|what am i looking at|what do you see|analyse.*screen|read.*screen/i.test(text);
+        if (isScreenVision) {
+          // Route to /screenshot which queues + polls for base64 result
+          const sRes = await fetch(baseUrl + '/screenshot', {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
+            body: JSON.stringify({ prompt: text, requested_by: 'falkor-agent' }),
+          });
+          if (!sRes.ok) return null;
+          const sData = await sRes.json();
+          if (sData.image_b64) {
+            // Pass base64 to asgard-ai vision
+            const vRes = await fetch('https://asgard-ai.luckdragon.io/chat/vision', {
+              method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pin': aiPin },
+              body: JSON.stringify({
+                image_base64: sData.image_b64,
+                image_mime: sData.image_mime || 'image/jpeg',
+                message: text,
+                model: 'haiku',
+              })
+            });
+            if (vRes.ok) {
+              const vd = await vRes.json();
+              return { vision_reply: vd.reply || '', screenshot_taken: true, cmd_id: sData.cmd_id };
+            }
+          }
+          return sData; // return whatever we got (timeout message etc)
+        }
+        // Regular desktop command
         return fetch(baseUrl + '/command', {
           method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
           body: JSON.stringify({ command: text, intent: 'desktop', requested_by: 'falkor-agent' }),
         }).then(r => r.ok ? r.json() : null);
+      }
       default: return null;
     }
   } catch { return null; }
@@ -517,7 +547,7 @@ export class FalkorAgent {
       const memory = await this.getMemory();
       const ctxTs = await this.state.storage.get('liveContextTs');
       return corsJson({
-        version: '2.4.0',
+        version: '2.5.0',
         activeSessions: this.sessions.size,
         historyLength: history.length,
         memoryKeys: Object.keys(memory).length,
@@ -633,9 +663,15 @@ export class FalkorAgent {
             .map(r => `- ${r.title}: ${r.snippet || ''}`.slice(0, 120)).join('\n');
           pendingAgentCtx = `\n\n## Web Search Results for "${text}"\nAnswer: ${agentData.answer}\n${snippets}\n\n(Use these results to answer the user — do not say you cannot search.)`;
         } else if (intent.agent === 'desktop') {
-          const cmdId = agentData.id || '?';
-          const cmdText = agentData.command || text;
-          pendingAgentCtx = '\n\n[DESKTOP COMMAND QUEUED] ID:' + cmdId + ' — ' + cmdText + '. Tell the user the command has been queued and the local agent will execute it shortly.';
+          if (agentData.vision_reply) {
+            // Screen vision result — inject the AI description directly
+            pendingAgentCtx = '\n\n[SCREEN VISION RESULT]\n' + agentData.vision_reply + '\n\n(The user asked you to describe their screen. The above is what the vision model saw. Present it naturally as your own observation — "On your screen I can see...")';
+          } else {
+            const cmdId = agentData.id || agentData.cmd_id || '?';
+            const cmdText = agentData.command || text;
+            const errMsg = agentData.error ? ' Error: ' + agentData.error : '';
+            pendingAgentCtx = '\n\n[DESKTOP COMMAND QUEUED] ID:' + cmdId + ' — ' + cmdText + errMsg + '. Tell the user the command has been queued and the local agent will execute it shortly.';
+          }
         } else {
           pendingAgentCtx = '\n\nLive data from falkor-' + intent.agent + ':\n' +
             JSON.stringify(agentData, null, 2).slice(0, 1500);
@@ -863,7 +899,7 @@ export default {
     }
 
     if (url.pathname === '/health') {
-      return Response.json({ status: 'ok', version: '2.4.0', worker: 'falkor-agent' });
+      return Response.json({ status: 'ok', version: '2.5.0', worker: 'falkor-agent' });
     }
 
     // ── /tasks proxy → falkor-workflows via service binding (no 522 loopback) ──
