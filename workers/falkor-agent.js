@@ -1,5 +1,5 @@
 
-// falkor-agent v2.5.0 — Phase 60 screen vision: screenshot → /vision chain
+// falkor-agent v2.6.0 — Phase 60 screen vision: screenshot → /vision chain
 // v1.7.0 adds:
 //   1. Live context pre-loader — fetches weather/calendar/sport/tips before first reply
 //   2. Auto-memory — every 5 turns, Haiku extracts memorable facts → falkor-brain
@@ -547,7 +547,7 @@ export class FalkorAgent {
       const memory = await this.getMemory();
       const ctxTs = await this.state.storage.get('liveContextTs');
       return corsJson({
-        version: '2.5.0',
+        version: '2.6.0',
         activeSessions: this.sessions.size,
         historyLength: history.length,
         memoryKeys: Object.keys(memory).length,
@@ -899,7 +899,7 @@ export default {
     }
 
     if (url.pathname === '/health') {
-      return Response.json({ status: 'ok', version: '2.5.0', worker: 'falkor-agent' });
+      return Response.json({ status: 'ok', version: '2.6.0', worker: 'falkor-agent' });
     }
 
     // ── /tasks proxy → falkor-workflows via service binding (no 522 loopback) ──
@@ -926,6 +926,48 @@ export default {
         return new Response(JSON.stringify({ ok: false, error: e.message }), {
           status: 502, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
         });
+      }
+    }
+
+
+    // ── /home — aggregated live data bundle for Home tab ──────────────────────
+    if (url.pathname === '/home' && request.method === 'GET') {
+      const pin = env.AGENT_PIN || '';
+      const aiPin = env.AI_WORKER_PIN || env.AGENT_PIN || '';
+      const aiUrl = env.AI_WORKER_URL || 'https://asgard-ai.luckdragon.io';
+      const safe = p => p.catch(() => null);
+      try {
+        const [weather, sport, nrlLadder, racingToday] = await Promise.all([
+          safe(fetch(`${aiUrl}/weather?lat=${WPS_LAT}&lon=${WPS_LON}`, { headers: { 'X-Pin': aiPin } }).then(r => r.ok ? r.json() : null)),
+          safe(fetch(`${SPORT_URL}/summary`, { headers: { 'X-Pin': pin } }).then(r => r.ok ? r.json() : null)),
+          safe(fetch(`${SPORT_URL}/nrl/ladder`, { headers: { 'X-Pin': pin } }).then(r => r.ok ? r.json() : null)),
+          safe(fetch(`${SPORT_URL}/racing/comp?pin=${pin}`).then(r => r.ok ? r.json() : null)),
+        ]);
+        // Find Essendon on AFL ladder
+        const ladder = sport?.ladder || [];
+        const essendon = ladder.find(t => /essendon|bombers/i.test(t.team)) || null;
+        const top5AFL = ladder.slice(0, 5);
+        const top4NRL = (nrlLadder?.ladder || []).slice(0, 4);
+        return corsJson({
+          ok: true,
+          ts: Date.now(),
+          weather: weather || null,
+          afl: {
+            round: sport?.round || null,
+            summary: sport?.summary || '',
+            top5: top5AFL,
+            essendon: essendon,
+          },
+          nrl: {
+            top4: top4NRL,
+          },
+          racing: {
+            today: racingToday?.tips || [],
+            date: racingToday?.date || null,
+          },
+        });
+      } catch (e) {
+        return corsJson({ ok: false, error: e.message }, 502);
       }
     }
 
