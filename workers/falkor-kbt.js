@@ -296,6 +296,134 @@ export class KBTGame {
 
 // ─── Main Worker ──────────────────────────────────────────────────────────────
 
+
+// ─── KBT Slide Builder (Phase 28B) ───────────────────────────────────────────
+async function buildSlides(env, { topic = 'general knowledge', count = 10, gameTitle = 'Kow Brainer Trivia', token = null }) {
+  const pin = env.AGENT_PIN || '';
+  const BRAIN_URL = 'https://falkor-brain.luckdragon.io';
+
+  // 1. Generate questions from falkor-kbt /generate
+  let questions = [];
+  try {
+    const genResp = await fetch('https://falkor-kbt.luckdragon.io/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
+      body: JSON.stringify({ topic, count }),
+    });
+    if (genResp.ok) {
+      const genData = await genResp.json();
+      questions = genData.questions || [];
+    }
+  } catch(e) { console.warn('generate failed:', e.message); }
+
+  if (questions.length === 0) {
+    return { ok: false, error: 'Could not generate questions for: ' + topic };
+  }
+
+  // 2. Build HTML slide deck (always available)
+  const accentColors = ['#6c63ff','#f59e0b','#ef4444','#22c55e','#3b82f6','#a855f7','#ec4899'];
+  const slideHtml = questions.map(function(q, i) {
+    var accent = accentColors[i % accentColors.length];
+    var qText = typeof q === 'string' ? q : (q.question || q.q || JSON.stringify(q));
+    var aText = typeof q === 'object' ? (q.answer || q.a || '') : '';
+    var cat = typeof q === 'object' ? (q.category || q.cat || topic) : topic;
+    return '<div class="slide" style="background:#fff;border-radius:16px;padding:40px 48px;margin-bottom:20px;box-shadow:0 4px 20px rgba(0,0,0,.08);border-left:6px solid '+accent+';page-break-after:always">' +
+      '<div style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:'+accent+';font-weight:700;margin-bottom:16px">Q' + (i+1) + ' · ' + cat + '</div>' +
+      '<div style="font-size:22px;font-weight:800;color:#1a1a2e;line-height:1.4;margin-bottom:' + (aText ? '24px' : '0') + '">' + qText + '</div>' +
+      (aText ? '<div style="background:'+accent+'15;border-radius:10px;padding:12px 20px;border:1px solid '+accent+'33"><span style="font-size:12px;font-weight:700;color:'+accent+';text-transform:uppercase;letter-spacing:1px">Answer: </span><span style="font-size:16px;font-weight:600;color:#1a1a2e">' + aText + '</span></div>' : '') +
+      '</div>';
+  }).join('');
+
+  const html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + gameTitle + ' — ' + topic + '</title>' +
+    '<style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#f4f4f8;margin:0;padding:24px}' +
+    '.header{background:linear-gradient(135deg,#6c63ff,#a78bfa);color:#fff;border-radius:16px;padding:32px 40px;margin-bottom:24px}' +
+    '.header h1{margin:0 0 8px;font-size:28px;font-weight:900}' +
+    '.header p{margin:0;opacity:.85;font-size:14px}' +
+    '@media print{body{padding:0}.slide{box-shadow:none;border-radius:0;margin:0;page-break-after:always}}' +
+    '</style></head><body>' +
+    '<div class="header"><div style="font-size:32px;margin-bottom:8px">🐉 Kow Brainer Trivia</div>' +
+    '<h1>' + gameTitle + '</h1><p>' + questions.length + ' questions · Topic: ' + topic + '</p></div>' +
+    slideHtml +
+    '</body></html>';
+
+  const result = { ok: true, topic, count: questions.length, questions, html };
+
+  // 3. Google Slides API — activate if token available
+  const gToken = token || (env.GOOGLE_ACCESS_TOKEN || '');
+  const DRIVE_TEMPLATE_FOLDER = '1-z8QMj_9YAGrqJhzHNoBMRFg3t6JanZa';
+
+  if (gToken) {
+    try {
+      // Find a suitable template in the Drive folder
+      const listResp = await fetch(
+        'https://www.googleapis.com/drive/v3/files?q=' + encodeURIComponent("'" + DRIVE_TEMPLATE_FOLDER + "' in parents and trashed=false") + '&pageSize=5&fields=files(id,name)',
+        { headers: { 'Authorization': 'Bearer ' + gToken } }
+      );
+      if (listResp.ok) {
+        const listData = await listResp.json();
+        const templates = listData.files || [];
+        if (templates.length > 0) {
+          const template = templates[0];
+          // Copy the template
+          const copyResp = await fetch('https://www.googleapis.com/drive/v3/files/' + template.id + '/copy', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + gToken, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: gameTitle + ' — ' + topic + ' (' + new Date().toLocaleDateString('en-AU') + ')' }),
+          });
+          if (copyResp.ok) {
+            const copyData = await copyResp.json();
+            const slidesId = copyData.id;
+            const slidesUrl = 'https://docs.google.com/presentation/d/' + slidesId + '/edit';
+
+            // Get slides to find text placeholders
+            const slidesResp = await fetch(
+              'https://slides.googleapis.com/v1/presentations/' + slidesId,
+              { headers: { 'Authorization': 'Bearer ' + gToken } }
+            );
+            if (slidesResp.ok) {
+              const pres = await slidesResp.json();
+              const slides = pres.slides || [];
+              const requests = [];
+
+              // Replace [answer_text] placeholders with actual answers
+              for (var i = 0; i < slides.length && i < questions.length; i++) {
+                var q2 = questions[i];
+                var aText2 = typeof q2 === 'object' ? (q2.answer || q2.a || '') : '';
+                if (aText2) {
+                  requests.push({
+                    replaceAllText: {
+                      containsText: { text: '[answer_text]', matchCase: false },
+                      replaceText: aText2,
+                      pageObjectIds: [slides[i].objectId],
+                    }
+                  });
+                }
+              }
+
+              if (requests.length > 0) {
+                await fetch('https://slides.googleapis.com/v1/presentations/' + slidesId + ':batchUpdate', {
+                  method: 'POST',
+                  headers: { 'Authorization': 'Bearer ' + gToken, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ requests }),
+                });
+              }
+
+              result.slides_url = slidesUrl;
+              result.slides_id = slidesId;
+              result.template_used = template.name;
+            }
+          }
+        }
+      }
+    } catch(e2) { result.slides_error = e2.message; }
+  } else {
+    result.slides_note = 'Set GOOGLE_ACCESS_TOKEN secret to enable Google Slides export';
+  }
+
+  return result;
+}
+
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
