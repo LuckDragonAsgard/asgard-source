@@ -109,21 +109,29 @@ async function handleAuth(path, request, env) {
     if (!invite) return err('Invalid invite');
     const salt = crypto.randomUUID();
     const hash = await hashPassword(password, salt);
-    const userId = crypto.randomUUID();
-    await env.DB.prepare('INSERT INTO users (id,name,role,password_hash,salt,avatar_color) VALUES (?,?,?,?,?,?)').bind(
-      userId, name || invite.name, invite.role, hash, salt, invite.avatar_color || '#6366f1'
-    ).run();
+    // If invite has a seeded user_id, UPDATE that row — otherwise INSERT new
+    let userId;
+    if (invite.user_id) {
+      userId = invite.user_id;
+      await env.DB.prepare('UPDATE users SET password_hash=?,salt=?,name=COALESCE(?,name) WHERE id=?').bind(hash, salt, name||null, userId).run();
+    } else {
+      userId = crypto.randomUUID();
+      await env.DB.prepare('INSERT INTO users (id,name,role,password_hash,salt,avatar_color) VALUES (?,?,?,?,?,?)').bind(
+        userId, name || invite.name, invite.role, hash, salt, invite.avatar_color || '#6366f1'
+      ).run();
+    }
     await env.DB.prepare('UPDATE invites SET used=1,used_by=?,used_at=datetime("now") WHERE token=?').bind(userId, token).run();
     // Add to family group chat (chat_id=1)
     try { await env.DB.prepare('INSERT OR IGNORE INTO chat_members (chat_id,user_id) VALUES (1,?)').bind(userId).run(); } catch {}
     const sessionToken = crypto.randomUUID();
     await env.DB.prepare('INSERT INTO sessions (token,user_id,expires_at) VALUES (?,?,datetime("now","+"||?||" days"))').bind(sessionToken, userId, 30).run();
-    return json({token: sessionToken, user: {id:userId, name, role:invite.role}});
+    const finalUser = await env.DB.prepare('SELECT * FROM users WHERE id=?').bind(userId).first();
+    return json({token: sessionToken, user: {id:userId, name:finalUser?.name||name, role:invite.role}});
   }
 
   if (path === '/api/auth/login' && method === 'POST') {
     const {name, password} = await request.json();
-    const user = await env.DB.prepare('SELECT * FROM users WHERE LOWER(name)=LOWER(?)').bind(name).first();
+    const user = await env.DB.prepare('SELECT * FROM users WHERE LOWER(name)=LOWER(?) AND password_hash IS NOT NULL ORDER BY created_at DESC').bind(name).first();
     if (!user) return err('User not found', 401);
     const hash = await hashPassword(password, user.salt);
     if (hash !== user.password_hash) return err('Wrong password', 401);
@@ -2737,6 +2745,80 @@ window.startApp = function() {
   setTimeout(applyAllFeatureToggles, 2000);
 };
 
+
+// ─── AUTO-POLLING (no hard refreshes ever) ───────────────────────────────────
+let _pollIntervals = {};
+let _lastChatMsgId = null;
+let _lastFeedTs = null;
+
+function startPolling() {
+  stopPolling();
+  // Chat: every 5s when chat screen visible
+  _pollIntervals.chat = setInterval(async () => {
+    if (!currentChatId) return;
+    const screen = document.getElementById('chatScreen');
+    if (!screen || !screen.classList.contains('open')) return;
+    const msgs = await api(\`/api/chats/\${currentChatId}/messages\`);
+    if (!msgs || !Array.isArray(msgs)) return;
+    const lastId = msgs[msgs.length-1]?.id;
+    if (lastId && lastId !== _lastChatMsgId) {
+      _lastChatMsgId = lastId;
+      renderMessages(msgs);
+      // Auto-scroll to bottom only if already near bottom
+      const ml = document.getElementById('messageList');
+      if (ml && ml.scrollHeight - ml.scrollTop - ml.clientHeight < 120) {
+        ml.scrollTop = ml.scrollHeight;
+      }
+    }
+  }, 5000);
+
+  // Feed: every 15s when feed screen visible
+  _pollIntervals.feed = setInterval(async () => {
+    const screen = document.getElementById('feedScreen');
+    if (!screen || screen.classList.contains('hidden')) return;
+    const posts = await api('/api/feed');
+    if (!posts || !Array.isArray(posts) || !posts.length) return;
+    const newTs = posts[0]?.created_at;
+    if (newTs && newTs !== _lastFeedTs) {
+      _lastFeedTs = newTs;
+      renderFeed(posts);
+    }
+  }, 15000);
+
+  // Notifications: every 30s always
+  _pollIntervals.notif = setInterval(async () => {
+    if (!currentUser) return;
+    const n = await api('/api/notifications');
+    if (!n) return;
+    const unread = (n.items||[]).filter(x=>!x.read).length;
+    const badge = document.getElementById('notifBadge');
+    if (badge) badge.textContent = unread > 0 ? unread : '';
+    if (badge) badge.style.display = unread > 0 ? 'flex' : 'none';
+  }, 30000);
+
+  // Stories: every 60s when stories visible
+  _pollIntervals.stories = setInterval(async () => {
+    const bar = document.getElementById('storyStrip');
+    if (!bar) return;
+    loadStories();
+  }, 60000);
+}
+
+function stopPolling() {
+  Object.values(_pollIntervals).forEach(id => clearInterval(id));
+  _pollIntervals = {};
+}
+
+// Hook: start polling after login
+const _origInit = typeof initApp === 'function' ? initApp : null;
+// Patch: start polling whenever currentUser is set
+const _pollOnLogin = setInterval(() => {
+  if (currentUser && !_pollIntervals.notif) {
+    startPolling();
+    clearInterval(_pollOnLogin);
+  }
+}, 1000);
+
 </script>
 </body>
 </html>`;
@@ -2767,7 +2849,8 @@ export default {
     `CREATE TABLE IF NOT EXISTS recipes (id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT, ingredients TEXT, steps TEXT, image_key TEXT, created_by TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`,
     `CREATE TABLE IF NOT EXISTS kindness (id TEXT PRIMARY KEY, title TEXT NOT NULL, description TEXT, done INTEGER DEFAULT 0, done_by TEXT, created_by TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`,
     `CREATE TABLE IF NOT EXISTS emergency_contacts (id TEXT PRIMARY KEY, user_id TEXT UNIQUE NOT NULL, name TEXT, relationship TEXT, phone TEXT, blood_type TEXT, allergies TEXT, medications TEXT, notes TEXT)`,
-    `CREATE TABLE IF NOT EXISTS meal_rota (id TEXT PRIMARY KEY, week_date TEXT NOT NULL, day_of_week INTEGER NOT NULL, meal TEXT NOT NULL, cook_id TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(week_date, day_of_week))`
+    `CREATE TABLE IF NOT EXISTS meal_rota (id TEXT PRIMARY KEY, week_date TEXT NOT NULL, day_of_week INTEGER NOT NULL, meal TEXT NOT NULL, cook_id TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, UNIQUE(week_date, day_of_week))`,
+    `ALTER TABLE invites ADD COLUMN user_id TEXT`,
   ];
   for (const sql of v3tables) { try { await env.DB.exec(sql); } catch(e) {} }
 
