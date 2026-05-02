@@ -15,7 +15,7 @@
 //
 // Bindings: DB (asgard-prod), PROJECTS_DB (project-hub-db), RESEND_API_KEY, AGENT_PIN, WEB_SERVICE (falkor-web)
 
-const VERSION = '2.4.0';
+const VERSION = '2.5.0';
 const WORKER_NAME = 'falkor-workflows';
 const PUSH_URL = 'https://falkor-push.luckdragon.io';
 const SPORT_URL = 'https://falkor-sport.luckdragon.io';
@@ -777,6 +777,77 @@ async function runWeeklySummary(env) {
   return { ok: true, round: round, standings: season.length, results: lastRoundGames.filter(function(g){return g.status==='final';}).length };
 }
 
+
+// ─── Racing Weekly Summary (Phase 28A) ───────────────────────────────────────
+async function runRacingWeeklySummary(env) {
+  const pin = env.AGENT_PIN || '';
+
+  // Get full leaderboard
+  var lbResp = await fetch(SPORT_URL + '/racing/leaderboard', { headers: { 'X-Pin': pin } }).catch(function() { return null; });
+  var leaderboard = [];
+  if (lbResp && lbResp.ok) {
+    var lbData = await lbResp.json();
+    leaderboard = lbData.leaderboard || [];
+  }
+
+  if (leaderboard.length === 0) {
+    return { ok: true, skipped: true, reason: 'no tips yet this season' };
+  }
+
+  var date = new Date().toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Australia/Melbourne' });
+
+  // Medal rows
+  var lbRows = leaderboard.map(function(p, i) {
+    var medal = i === 0 ? ' 🥇' : i === 1 ? ' 🥈' : i === 2 ? ' 🥉' : '';
+    var isLeader = i === 0;
+    return '<tr style="background:' + (i%2===0?'#f9f9fc':'#fff') + '">' +
+      '<td style="padding:8px 12px">' + (i+1) + medal + '</td>' +
+      '<td style="padding:8px 12px;font-weight:' + (isLeader?'700':'400') + '">' + p.player + '</td>' +
+      '<td style="padding:8px 12px;text-align:center;color:#22c55e;font-weight:600">' + p.wins + '</td>' +
+      '<td style="padding:8px 12px;text-align:center">' + p.total + '</td>' +
+      '<td style="padding:8px 12px;text-align:center;color:#72728a">' + p.pct + '%</td>' +
+      '<td style="padding:8px 12px;text-align:center;color:#72728a">' + p.days + 'd</td>' +
+      '</tr>';
+  }).join('');
+
+  var leader = leaderboard[0];
+  var html = '<!DOCTYPE html><html><body style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#f4f4f8;margin:0;padding:24px">' +
+    '<div style="max-width:600px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08)">' +
+    '<div style="background:linear-gradient(135deg,#f59e0b,#ef4444);padding:28px 32px;color:#fff">' +
+    '<div style="font-size:28px;margin-bottom:4px">🏇 Falkor Racing</div>' +
+    '<h1 style="margin:0;font-size:22px;font-weight:800">Weekly Racing Leaderboard</h1>' +
+    '<p style="margin:4px 0 0;opacity:.85">' + date + '</p></div>' +
+    '<div style="padding:28px 32px">' +
+    '<p style="margin:0 0 16px;color:#444">Leader this week: <strong>' + leader.player + '</strong> with ' + leader.wins + ' winner' + (leader.wins !== 1 ? 's' : '') + ' from ' + leader.total + ' tips (' + leader.pct + '% strike rate) 🎉</p>' +
+    '<table style="width:100%;border-collapse:collapse;margin-bottom:24px">' +
+    '<thead><tr style="background:#f4f4f8">' +
+    '<th style="padding:8px 12px;text-align:left;font-size:12px;color:#72728a">#</th>' +
+    '<th style="padding:8px 12px;text-align:left;font-size:12px;color:#72728a">Player</th>' +
+    '<th style="padding:8px 12px;text-align:center;font-size:12px;color:#72728a">Wins</th>' +
+    '<th style="padding:8px 12px;text-align:center;font-size:12px;color:#72728a">Tips</th>' +
+    '<th style="padding:8px 12px;text-align:center;font-size:12px;color:#72728a">%</th>' +
+    '<th style="padding:8px 12px;text-align:center;font-size:12px;color:#72728a">Days</th>' +
+    '</tr></thead><tbody>' + lbRows + '</tbody></table>' +
+    '<div style="background:#f4f4f8;border-radius:10px;padding:16px 20px">' +
+    '<p style="margin:0;font-size:13px;color:#72728a">Tip next Saturday races: ' +
+    '<a href="https://falkor.luckdragon.io/?intent=racing" style="color:#f59e0b;font-weight:600">falkor.luckdragon.io</a></p>' +
+    '</div></div>' +
+    '<div style="padding:16px 32px;background:#f4f4f8;text-align:center">' +
+    '<p style="margin:0;font-size:12px;color:#72728a">Sent by 🐉 Falkor · Racing Tips</p>' +
+    '</div></div></body></html>';
+
+  await sendEmail(env, { to: PADDY_EMAIL, subject: '🏇 Racing Leaderboard — ' + date, html: html });
+  await sendPush(env, {
+    title: '🏇 Weekly racing wrap — ' + leader.player + ' leads!',
+    body: leader.player + ': ' + leader.wins + ' wins from ' + leader.total + ' tips (' + leader.pct + '%)',
+    url: 'https://falkor.luckdragon.io/?intent=racing',
+    tag: 'racing-weekly',
+  });
+
+  await logRun(env, 'racing_weekly_summary', { date: date, players: leaderboard.length, leader: leader.player });
+  return { ok: true, date: date, players: leaderboard.length, leader: leader.player };
+}
+
 // ─── Racing Results Scorer (Phase 27C) ───────────────────────────────────────
 async function runRacingResults(env) {
   const pin = env.AGENT_PIN || '';
@@ -889,6 +960,12 @@ async function runScheduled(cron, env) {
   // Score watcher — runs every tick, active only during live games
   await runScoreWatcher(env).catch(function(e) { console.warn('score watcher:', e.message); });
 
+  // Racing weekly summary — Sunday 10pm UTC = Monday 8am AEST
+  if (dayOfWeek === 0 && hour === 22 && minute < 15) {
+    var rwSum = await runRacingWeeklySummary(env).catch(function(e) { return { ok: false, error: e.message }; });
+    await logRun(env, 'racing_weekly_summary', rwSum);
+  }
+
   // Racing results — 11pm UTC = 9am AEST next day (after afternoon/evening races settled)
   if (hour === 23 && minute < 15) {
     var racingRes = await runRacingResults(env).catch(function(e) { return { ok: false, error: e.message }; });
@@ -957,6 +1034,7 @@ export default {
           case 'daily_summary':    result = await runDailySummary(env); break;
           case 'smart_alerts':     result = await runSmartAlerts(env); break;
           case 'racing_results':   result = await runRacingResults(env); break;
+          case 'racing_weekly':    result = await runRacingWeeklySummary(env); break;
           default: return err('Unknown workflow: ' + workflow + '. Options: pe_weather_alert, daily_summary, smart_alerts, racing_results');
         }
         await logRun(env, workflow, result);
@@ -974,6 +1052,11 @@ export default {
 
     if (path === '/weekly-summary' && method === 'POST') {
       const result = await runWeeklySummary(env);
+      return json({ ok: true, ...result });
+    }
+
+    if (path === '/racing-weekly' && method === 'POST') {
+      const result = await runRacingWeeklySummary(env);
       return json({ ok: true, ...result });
     }
 
