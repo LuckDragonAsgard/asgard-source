@@ -14,7 +14,7 @@
 //   POST /events               — create event
 //   GET  /health               — version + DB check
 
-const VERSION = '2.0.0';
+const VERSION = '2.1.0';
 const WORKER_NAME = 'falkor-kbt';
 const DB_ID = '7c6ee10f-93d4-475e-889d-cade0dbfd076';
 
@@ -314,7 +314,7 @@ async function getGoogleToken(env) {
   const email = env.GOOGLE_CLIENT_EMAIL;
   let pem = env.GOOGLE_PRIVATE_KEY;
   if (!email || !pem) return null;
-  pem = pem.replace(/\\\\n/g, '\n');
+  pem = pem.replace(/\\n/g, '\n');
   const pemBody = pem.replace('-----BEGIN PRIVATE KEY-----','')
     .replace('-----END PRIVATE KEY-----','').replace(/\s/g,'');
   const derBytes = Uint8Array.from(atob(pemBody), c => c.charCodeAt(0));
@@ -477,7 +477,7 @@ export default {
 
     // Health
     if (path === '/google-auth-test') {
-      requirePin(req, env);
+      if (!pinOk(request, env)) return err('Unauthorized', 401);
       const tok = await getGoogleToken(env).catch(e => null);
       if (!tok) return json({ ok: false, msg: 'No token — add GOOGLE_CLIENT_EMAIL + GOOGLE_PRIVATE_KEY secrets' });
       const FOLDER_ID = '1-z8QMj_9YAGrqJhzHNoBMRFg3t6JanZa';
