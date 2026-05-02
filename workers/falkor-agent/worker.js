@@ -76,7 +76,7 @@ const AGENT_MODEL_OVERRIDES = { sport: 'haiku', kbt: 'haiku', web: 'haiku' };
 function routeIntent(text) {
   if (!text) return null;
   const t = text.toLowerCase();
-  if (/\b(afl|footy|football|ladder|tip|tipping|squiggle|racing|horse|race|round|score|fixture|essendon|collingwood|hawks|bombers|cats|demons|carlton|richmond|western bulldogs|fremantle|geelong|hawthorn|melbourne|port adelaide|gold coast|gws|brisbane|sydney|west coast|st kilda|north melbourne|adelaide)\b/.test(t))
+  if (/\b(afl|footy|football|ladder|tip|tipping|squiggle|racing|horse|race|round|score|fixture|essendon|collingwood|hawks|bombers|cats|demons|carlton|richmond|western bulldogs|fremantle|geelong|hawthorn|melbourne|port adelaide|gold coast|gws|brisbane|sydney|west coast|st kilda|north melbourne|adelaide|nrl|rugby league|panthers|warriors|roosters|rabbitohs|bulldogs|broncos|sharks|dragons|tigers|eels|knights|sea eagles|raiders|cowboys|titans|dolphins|storm)\b/.test(t))
     return { agent: 'sport', action: 'summary' };
   if (/\b(trivia|kbt|kow|brainer|quiz|question|pub quiz|game|host|players|leaderboard|event tonight|next event)\b/.test(t))
     return { agent: 'kbt', action: 'query' };
@@ -250,11 +250,14 @@ async function loadLiveContext(pin, aiPin) {
 
   const safe = (p) => Promise.race([p, timeout(4000)]).catch(() => null);
 
-  const [weather, calToday, calTomorrow, sport] = await Promise.all([
+  const nrlSeason = new Date().getFullYear();
+  const [weather, calToday, calTomorrow, sport, nrlDraw, nrlLb] = await Promise.all([
     safe(fetch(`${WEATHER_URL}/weather?lat=${WPS_LAT}&lon=${WPS_LON}`, { headers: { 'X-Pin': aiPin } }).then(r => r.ok ? r.json() : null)),
     safe(fetch(`${CALENDAR_URL}/today`,    { headers: { 'X-Pin': pin } }).then(r => r.ok ? r.json() : null)),
     safe(fetch(`${CALENDAR_URL}/tomorrow`, { headers: { 'X-Pin': pin } }).then(r => r.ok ? r.json() : null)),
     safe(fetch(`${SPORT_URL}/summary`,     { headers: { 'X-Pin': pin } }).then(r => r.ok ? r.json() : null)),
+    safe(fetch(`${SPORT_URL}/nrl/draw?season=${nrlSeason}`, { headers: { 'X-Pin': pin } }).then(r => r.ok ? r.json() : null)),
+    safe(fetch(`${SPORT_URL}/nrl/leaderboard?season=${nrlSeason}`, { headers: { 'X-Pin': pin } }).then(r => r.ok ? r.json() : null)),
   ]);
 
   const lines = ['=== LIVE CONTEXT (fetched now) ==='];
@@ -280,7 +283,7 @@ async function loadLiveContext(pin, aiPin) {
   fmtEvents(calToday, 'TODAY');
   fmtEvents(calTomorrow, 'TOMORROW');
 
-  // Sport
+  // Sport — AFL
   if (sport) {
     if (sport.ladder) {
       const top3 = (sport.ladder || []).slice(0, 3).map(t => t.name || t.team).filter(Boolean).join(', ');
@@ -288,6 +291,19 @@ async function loadLiveContext(pin, aiPin) {
     }
     if (sport.round) lines.push(`AFL ROUND: ${JSON.stringify(sport.round).slice(0, 120)}`);
     if (sport.tips_leader) lines.push(`FOOTY TIPS LEADER: ${sport.tips_leader}`);
+  }
+
+  // Sport — NRL
+  if (nrlDraw && nrlDraw.round) {
+    lines.push(`NRL ROUND: ${nrlDraw.round}`);
+    const upcomingNRL = (nrlDraw.fixtures || []).filter(g => g.matchMode !== 'Post').slice(0, 3);
+    if (upcomingNRL.length) {
+      lines.push('NRL UPCOMING: ' + upcomingNRL.map(g => `${g.homeTeam} vs ${g.awayTeam}`).join(', '));
+    }
+  }
+  if (nrlLb && nrlLb.leaderboard && nrlLb.leaderboard.length > 0) {
+    const nrlTop = nrlLb.leaderboard[0];
+    lines.push(`NRL TIPS LEADER: ${nrlTop.player} — ${nrlTop.correct}/${nrlTop.total} (${nrlTop.pct}%)`);
   }
 
   lines.push('=== END LIVE CONTEXT ===');
