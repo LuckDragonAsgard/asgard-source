@@ -15,7 +15,7 @@
 //
 // Bindings: DB (asgard-prod), PROJECTS_DB (project-hub-db), RESEND_API_KEY, AGENT_PIN, WEB_SERVICE (falkor-web)
 
-const VERSION = '2.6.0';
+const VERSION = '2.7.0';
 const WORKER_NAME = 'falkor-workflows';
 const PUSH_URL = 'https://falkor-push.luckdragon.io';
 const SPORT_URL = 'https://falkor-sport.luckdragon.io';
