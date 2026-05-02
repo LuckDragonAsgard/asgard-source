@@ -15,7 +15,7 @@
 //
 // Bindings: DB (asgard-prod), PROJECTS_DB (project-hub-db), RESEND_API_KEY, AGENT_PIN, WEB_SERVICE (falkor-web)
 
-const VERSION = '3.3.0';
+const VERSION = '3.4.0';
 const WORKER_NAME = 'falkor-workflows';
 const PUSH_URL = 'https://falkor-push.luckdragon.io';
 const SPORT_URL = 'https://falkor-sport.luckdragon.io';
@@ -1181,6 +1181,64 @@ async function runRacingResults(env) {
 }
 
 // ─── Cron dispatcher ──────────────────────────────────────────────────────────
+
+// ─── Phase 47: End-of-school Telegram check-in ───────────────────────────────
+async function runAfterSchoolCheckin(env) {
+  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return { skipped: true, reason: 'no telegram' };
+
+  // Only on weekdays
+  var nowAEST = new Date(Date.now() + 10 * 3600 * 1000);
+  var dayOfWeek = nowAEST.getUTCDay();
+  if (dayOfWeek === 0 || dayOfWeek === 6) return { skipped: true, reason: 'weekend' };
+
+  var checkinKey = 'after_school_checkin_' + nowAEST.toDateString();
+  if (await checkAlertFired(env, checkinKey, 4 * 3600 * 1000)) return { skipped: true, reason: 'already sent today' };
+
+  // Gather context for a personalised message
+  var pin = env.AGENT_PIN || '';
+  var calResp = await fetch(CALENDAR_URL + '/today', { headers: { 'X-Pin': pin } }).catch(function() { return null; });
+  var todayEvts = [];
+  if (calResp && calResp.ok) {
+    var calData = await calResp.json().catch(function() { return {}; });
+    todayEvts = calData.events || [];
+  }
+
+  var wxResp = await getWeather(env, WPS_LAT, WPS_LON).catch(function() { return null; });
+
+  // Build a Jarvis-style check-in message
+  var msgParts = [];
+  msgParts.push('Afternoon, Paddy.');
+
+  // Weather note
+  if (wxResp && wxResp.current) {
+    var wx = wxResp.current;
+    if (wx.rain_chance > 50) {
+      msgParts.push('Looks like it got wet out there — ' + wx.temp + 'C and ' + wx.rain_chance + '% rain chance.');
+    } else if (wx.temp > 32) {
+      msgParts.push('Hot one today — ' + wx.temp + 'C. Hope the kids survived the heat.');
+    } else if (wx.uv >= 9) {
+      msgParts.push('UV was brutal today (' + wx.uv + '). Hats and sunscreen mandatory.');
+    } else {
+      msgParts.push('Decent day for it — ' + wx.temp + 'C, UV ' + wx.uv + '.');
+    }
+  }
+
+  // School event note
+  var schoolEventNames = todayEvts.map(function(e) { return (e.summary || e.title || ''); }).filter(function(n) {
+    return n && ['cross country', 'carnival', 'athletics', 'sports day', 'district', 'pe', 'sport', 'assembly'].some(function(k) { return n.toLowerCase().includes(k); });
+  });
+  if (schoolEventNames.length > 0) {
+    msgParts.push('You had: ' + schoolEventNames.join(', ') + ' on today. How did that go?');
+  } else {
+    msgParts.push('How was school today?');
+  }
+
+  var tgMsg = msgParts.join(' ');
+  var sent = await sendTelegram(env, tgMsg);
+  if (sent) await markAlertFired(env, checkinKey);
+  return { sent, message: tgMsg };
+}
+
 async function runScheduled(cron, env) {
   const hour = new Date().getUTCHours();
   const minute = new Date().getUTCMinutes();
@@ -1225,6 +1283,13 @@ async function runScheduled(cron, env) {
     const result = await runDailySummary(env);
     await logRun(env, 'daily_summary', result);
     return result;
+  }
+
+  // 5:30am UTC = 3:30pm AEST, Mon-Fri → After-school check-in
+  var cDow = new Date().getUTCDay();
+  if (hour === 5 && minute >= 30 && minute < 45 && cDow >= 1 && cDow <= 5) {
+    var checkinRes = await runAfterSchoolCheckin(env).catch(function(e) { return { ok: false, error: e.message }; });
+    await logRun(env, 'after_school_checkin', checkinRes);
   }
 
   return { skipped: true, hour, minute };
