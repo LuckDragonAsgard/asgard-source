@@ -2441,6 +2441,7 @@ function App() {
   const [input, setInput] = useState('');
   const [typing, setTyping] = useState(false);
   const [wsState, setWsState] = useState('disconnected');
+  const [bridgeConnected, setBridgeConnected] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [attachment, setAttachment] = useState(null);
@@ -2543,6 +2544,7 @@ function App() {
             if (p === 'openai' || mk.includes('gpt')) return '🟢 GPT';
             if (p === 'gemini' || mk.includes('gemini')) return '💙 Gemini';
             if (p === 'groq' || mk.includes('groq')) return '⚡ Groq';
+            if (p === 'bridge' || mk === 'bridge') return '🔌 Local';
             return '';
           })();
           setConvos(prev => prev.map(c => c.id === cid ? { ...c, messages:[...(c.messages||[]), { id:msgId, role:'assistant', content:'', ts:Date.now(), modelBadge: badge }] } : c));
@@ -2557,10 +2559,12 @@ function App() {
               else if (alwaysOnRef.current || showVoiceRef.current || voiceEnabledRef.current) speakText(fullText);
             }
           }, 18);
+        } else if (msg.type === 'bridge_status') {
+          setBridgeConnected(!!msg.connected);
         }
       } catch {}
     };
-    ws.onclose = () => { setWsState('disconnected'); setTyping(false); reconnTimer.current = setTimeout(connectWS, 3000); };
+    ws.onclose = () => { setWsState('disconnected'); setTyping(false); setBridgeConnected(false); reconnTimer.current = setTimeout(connectWS, 3000); };
     ws.onerror = () => ws.close();
   }, [user]);
 
@@ -2926,6 +2930,7 @@ function App() {
           </select>
 
           <div className={'ws-dot' + (wsState==='connected'?' connected':wsState==='connecting'?' connecting':'')}/>
+          {bridgeConnected && <div title="Local bridge connected" style={{fontSize:'10px',background:'#22c55e22',color:'#22c55e',border:'1px solid #22c55e44',borderRadius:'10px',padding:'2px 7px',fontWeight:600,cursor:'default',userSelect:'none',whiteSpace:'nowrap'}}>🔌 PC</div>}
           <button className={'bell-btn' + (false?' active':'')} id="bell-btn" onClick={() => typeof togglePush==='function'&&togglePush()} title="Notifications">🔔</button>
           <button className="icon-btn" style={{ fontSize:'15px' }} onClick={() => setShowVoice(true)} title="Voice">🎤</button>
           <button className="icon-btn" style={{ fontSize:'15px' }} onClick={() => setDrivingMode(true)} title="Driving mode">🚗</button>
