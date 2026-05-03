@@ -1,5 +1,5 @@
-// sly-app v5.3 — standalone serve + Squiggle proxy
-// Updated 2026-05-02: all sly-api calls now use sly-api.luckdragon.io (no pgallivan refs)
+// sly-app v5.4 — standalone serve + Squiggle proxy + Fund tab patches
+// Updated 2026-05-03: serve-time Fund tab patch (OUTSTANDING col + JS)
 export default {
   async fetch(req, env) {
     const u = new URL(req.url);
@@ -45,8 +45,27 @@ export default {
       return fetch('https://sly-api.luckdragon.io'+p+u.search, {method:req.method, headers:req.headers, body:req.body});
     }
 
-    const html = await env.SLY_STATIC.get('standalone-index.html');
+    let html = await env.SLY_STATIC.get('standalone-index.html');
     if (!html) return new Response('Standalone HTML not in KV', {status:500});
+
+    // === Fund tab patches (applied at serve time) ===
+    // Patch 1: Add OUTSTANDING column to fund summary card
+    html = html.replace(
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.75rem">\n                <div><div style="font-size:0.75rem;color:var(--text-secondary);margin-bottom:0.2rem">COLLECTED</div><div id="fundCollected" style="font-size:2rem;font-weight:800;color:var(--accent2)">$0</div></div>\n                <div style="text-align:right"><div style="font-size:0.75rem;color:var(--text-secondary);margin-bottom:0.2rem">BALANCE</div><div id="fundBalance" style="font-size:2rem;font-weight:800;color:var(--accent)">$0</div></div>\n            </div>',
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.75rem"><div><div style="font-size:0.75rem;color:var(--text-secondary);margin-bottom:0.2rem">COLLECTED</div><div id="fundCollected" style="font-size:1.8rem;font-weight:800;color:var(--accent2)">$0</div></div><div style="text-align:center"><div style="font-size:0.75rem;color:var(--text-secondary);margin-bottom:0.2rem">OUTSTANDING</div><div id="fundOutstanding" style="font-size:1.8rem;font-weight:800;color:#e74c3c">$800</div></div><div style="text-align:right"><div style="font-size:0.75rem;color:var(--text-secondary);margin-bottom:0.2rem">BALANCE</div><div id="fundBalance" style="font-size:1.8rem;font-weight:800;color:var(--accent)">$0</div></div></div>'
+    );
+    // Patch 2: Update loadSlushFund to compute and set OUTSTANDING
+    html = html.replace(
+      "document.getElementById('fundProgressLabel').textContent = `${paidCount} of ${pList.length} paid`;",
+      "document.getElementById('fundProgressLabel').textContent = `${paidCount} of ${pList.length} paid`;const _outEl=document.getElementById('fundOutstanding');if(_outEl)_outEl.textContent='$'+(total-collected);"
+    );
+    // Patch 3: Clear fixtures cache after recalc so scores update
+    html = html.replace(
+      "    renderFixtures();\n    renderStats();\n    loadAdminScores();",
+      "    _slyFixturesCache={};\n    renderFixtures();\n    renderStats();\n    loadAdminScores();"
+    );
+    // === End Fund tab patches ===
+
     return new Response(html, {headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-cache, no-store, must-revalidate, max-age=0'}});
   }
 };
