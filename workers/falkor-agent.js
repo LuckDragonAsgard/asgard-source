@@ -1,5 +1,4 @@
-
-// falkor-agent v2.6.0 — Phase 60 screen vision: screenshot → /vision chain
+// falkor-agent v1.8.0 — Phase 80: Image Generation + Model Badges
 // v1.7.0 adds:
 //   1. Live context pre-loader — fetches weather/calendar/sport/tips before first reply
 //   2. Auto-memory — every 5 turns, Haiku extracts memorable facts → falkor-brain
@@ -49,12 +48,6 @@ function buildUserContext(userId) {
       interests: ['footy tips', 'racing', 'family'],
       email: null,
     },
-    aeneas: {
-      name: 'Aeneas',
-      desc: "Paddy's brother. Uses Falkor for footy tips, racing, and family comps.",
-      interests: ['footy tips', 'AFL', 'racing', 'family'],
-      email: 'aeneasg@hotmail.com',
-    },
   };
   return profiles[userId] || { name: userId || 'there', desc: 'a Falkor user.', interests: [], email: null };
 }
@@ -66,21 +59,6 @@ function corsJson(data, status = 200) {
   });
 }
 
-
-// ── Paddy's mode detector (AEST) ─────────────────────────────────────────────
-function getPaddyState() {
-  const nowAEST = new Date(Date.now() + 10 * 60 * 60 * 1000);
-  const h = nowAEST.getUTCHours();
-  const d = nowAEST.getUTCDay();
-  const isWeekday = d >= 1 && d <= 5;
-  if (h >= 23 || h < 6)  return { mode: 'sleep',   quiet: true,  label: 'probably asleep — keep it brief if they somehow messaged' };
-  if (isWeekday && h >= 8  && h < 15) return { mode: 'school',  quiet: true,  label: 'at school (WPS) — ultra concise, he has kids around' };
-  if (isWeekday && h >= 7  && h < 8)  return { mode: 'commute', quiet: true,  label: 'commuting — short replies only' };
-  if (isWeekday && h >= 15 && h < 16) return { mode: 'commute', quiet: false, label: 'just finished school, leaving' };
-  if (h >= 18 && h < 23)              return { mode: 'evening', quiet: false, label: 'evening — relaxed, can be conversational' };
-  return { mode: 'free', quiet: false, label: 'free time' };
-}
-
 // ── A2A Sub-agent Registry ────────────────────────────────────────────────────
 const AGENTS = {
   sport:     SPORT_URL,
@@ -90,15 +68,14 @@ const AGENTS = {
   school:    'https://falkor-school.luckdragon.io',
   web:       'https://falkor-web.luckdragon.io',
   code:      'https://falkor-code.luckdragon.io',
-  desktop:   'https://falkor-desktop.luckdragon.io',
+  image:     'https://asgard-ai.luckdragon.io',
 };
 
-const AGENT_MODEL_OVERRIDES = { sport: 'haiku', kbt: 'haiku', web: 'haiku' };
+const AGENT_MODEL_OVERRIDES = { sport: 'haiku', kbt: 'haiku' };
 
 function routeIntent(text) {
-  if (!text) return null;
   const t = text.toLowerCase();
-  if (/\b(afl|footy|football|ladder|tip|tipping|squiggle|racing|horse|race|round|score|fixture|essendon|collingwood|hawks|bombers|cats|demons|carlton|richmond|western bulldogs|fremantle|geelong|hawthorn|melbourne|port adelaide|gold coast|gws|brisbane|sydney|west coast|st kilda|north melbourne|adelaide|nrl|rugby league|panthers|penrith|warriors|roosters|rabbitohs|broncos|bulldogs|sharks|tigers|raiders|cowboys|sea eagles|eels|storm|titans|knights|dragons|rabbitohs|dolphins)\b/.test(t))
+  if (/\b(afl|footy|football|ladder|tip|tipping|squiggle|racing|horse|race|round|score|fixture|essendon|collingwood|hawks|bombers|cats|demons|carlton|richmond|western bulldogs|fremantle|geelong|hawthorn|melbourne|port adelaide|gold coast|gws|brisbane|sydney|west coast|st kilda|north melbourne|adelaide)\b/.test(t))
     return { agent: 'sport', action: 'summary' };
   if (/\b(trivia|kbt|kow|brainer|quiz|question|pub quiz|game|host|players|leaderboard|event tonight|next event)\b/.test(t))
     return { agent: 'kbt', action: 'query' };
@@ -110,10 +87,12 @@ function routeIntent(text) {
     return { agent: 'workflows', action: 'weather' };
   if (/\b(remember|recall|what do you know|brain|memory|stored|learned|told you|history of)\b/.test(t))
     return { agent: 'brain', action: 'recall' };
+  // Image generation
+  if (/\b(generate|draw|paint|create|make|design|illustrate)\b.{0,60}\b(image|picture|photo|illustration|poster|logo|artwork|graphic|portrait|painting|drawing)\b/i.test(t) ||
+      /\b(generate|draw|create|make|paint)\b\s+(me\s+)?(a|an)\b.{0,50}\b(image|picture|photo|illustration|artwork|logo|poster|drawing)\b/i.test(t))
+    return { agent: 'image', action: 'generate' };
   if (/\b(search|look up|find|google|what is|who is|latest|news|current|today's|recent)\b/.test(t) && t.length < 200)
     return { agent: 'web', action: 'search' };
-  if (/\b(open app|open program|take screenshot|screenshot|click|type on screen|computer control|run command|show on screen|my computer|desktop task|what.s on my screen|see my screen|look at my screen|what do you see|what am i looking at|analyse my screen|check my screen|read my screen|screen capture|what.s on screen)\b/.test(t))
-    return { agent: 'desktop', action: 'command' };
   return null;
 }
 
@@ -144,40 +123,13 @@ async function callSubAgent(agentKey, action, text, pin, aiPin) {
           method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
           body: JSON.stringify({ query: text }),
         }).then(r => r.ok ? r.json() : null);
-      case 'desktop': {
-        // Check if this is a screen vision request
-        const isScreenVision = /screenshot|what.s on.*(screen|display)|see.*screen|look.*screen|what am i looking at|what do you see|analyse.*screen|read.*screen/i.test(text);
-        if (isScreenVision) {
-          // Route to /screenshot which queues + polls for base64 result
-          const sRes = await fetch(baseUrl + '/screenshot', {
-            method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
-            body: JSON.stringify({ prompt: text, requested_by: 'falkor-agent' }),
-          });
-          if (!sRes.ok) return null;
-          const sData = await sRes.json();
-          if (sData.image_b64) {
-            // Pass base64 to asgard-ai vision
-            const vRes = await fetch('https://asgard-ai.luckdragon.io/chat/vision', {
-              method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pin': aiPin },
-              body: JSON.stringify({
-                image_base64: sData.image_b64,
-                image_mime: sData.image_mime || 'image/jpeg',
-                message: text,
-                model: 'haiku',
-              })
-            });
-            if (vRes.ok) {
-              const vd = await vRes.json();
-              return { vision_reply: vd.reply || '', screenshot_taken: true, cmd_id: sData.cmd_id };
-            }
-          }
-          return sData; // return whatever we got (timeout message etc)
-        }
-        // Regular desktop command
-        return fetch(baseUrl + '/command', {
-          method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
-          body: JSON.stringify({ command: text, intent: 'desktop', requested_by: 'falkor-agent' }),
-        }).then(r => r.ok ? r.json() : null);
+      case 'image': {
+        const imgResp = await fetch(`${AGENTS.image}/image/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Pin': aiPin || pin },
+          body: JSON.stringify({ prompt: text, model: 'gpt-image-1', size: '1024x1024', quality: 'medium' }),
+        });
+        return imgResp.ok ? imgResp.json() : null;
       }
       default: return null;
     }
@@ -186,20 +138,10 @@ async function callSubAgent(agentKey, action, text, pin, aiPin) {
 
 // ── Action handler — detect and execute Jarvis-style actions ─────────────────
 function detectAction(text) {
-  if (!text) return null;
   const t = text.toLowerCase().trim();
-  // Email actions — self summary
+  // Email actions
   if (/\b(email me|send me|email summary|send (a )?summary|mail me)\b/.test(t))
     return { type: 'email', subject: 'Falkor summary', body: text };
-  // Email to external recipient: "email Tom about X" / "send email to Jane about Y"
-  const emailToRe = /\b(?:email|send\s+(?:an?\s+)?email|write\s+(?:an?\s+)?email|compose)\s+(?:to\s+)?([\w][\w\s.]*?)\s+(?:about|re:|regarding|saying|with subject)\s+(.+)/i;
-  const emailToMatch = t.match(emailToRe);
-  if (emailToMatch) {
-    return { type: 'email_compose', to_name: emailToMatch[1].trim(), subject_hint: emailToMatch[2].trim(), original: text };
-  }
-  // Check inbox
-  if (/\b(check\s+(?:my\s+)?emails?|read\s+(?:my\s+)?emails?|any\s+(?:new\s+)?emails?|what(?:'s|\s+is)?\s+in\s+(?:my\s+)?inbox|new\s+emails?)\b/.test(t))
-    return { type: 'check_email' };
   // Note / save actions
   if (/^(note|save|remember|log|jot)[\s:]+/.test(t) || /\b(note this|save this|log this|jot this|remember this)\b/.test(t))
     return { type: 'note', content: text.replace(/^(note|save|remember|log|jot)[\s:]+/i, '').trim() };
@@ -207,53 +149,26 @@ function detectAction(text) {
   const remindMatch = t.match(/remind me (about |to )?(.+?)( on | at | tomorrow| next week)?$/);
   if (remindMatch && /\b(remind)\b/.test(t))
     return { type: 'remind', content: remindMatch[2], original: text };
-  // Task / background research intent
-  const taskKeywords = /^(research|find out|look into|investigate|queue[:\s]+|overnight[:\s]+|background[:\s]+|do this later[:\s]+)/i;
-  const taskAmbient = /\b(overnight|do this later|queue this|background task|run this later)\b/i;
-  if (taskKeywords.test(t) || taskAmbient.test(t)) {
-    const query = text.replace(/^(research|find out|look into|investigate|queue[:\s]+|overnight[:\s]+|background[:\s]+|do this later[:\s]+)/i, '').trim();
-    let taskType = 'research';
-    if (/\b(tipping|tips|standings|leaderboard)\b/i.test(text)) taskType = 'tipping_report';
-    else if (/\b(venture|priorities|projects|dashboard)\b/i.test(text)) taskType = 'venture_report';
-    else if (/\b(kbt|trivia|quiz|questions)\b/i.test(text)) taskType = 'kbt_prep';
-    return { type: 'task', taskType, query: query || text, title: (query || text).slice(0, 80) };
-  }
   return null;
 }
 
 async function executeAction(action, userId, userCtx, pin, env) {
   switch (action.type) {
     case 'email': {
-      const toAddr = action.to || userCtx.email || 'pgallivan@outlook.com';
-      const resendKey = (env && env.RESEND_API_KEY) || '';
-      if (resendKey) {
-        try {
-          const r = await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: { 'Authorization': 'Bearer ' + resendKey, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              from: 'Falkor <falkor@luckdragon.io>',
-              to: [toAddr],
-              subject: action.subject || 'Message from Falkor',
-              text: action.body || action.content || '',
-            }),
-          });
-          const rd = await r.json().catch(() => ({}));
-          if (rd.id) return `Sent to ${toAddr} ✓`;
-          return `Couldn't send — Resend said: ${JSON.stringify(rd).slice(0,100)}`;
-        } catch(e) {
-          return `Email failed: ${e.message}`;
-        }
-      }
-      // Fallback: log via workflows
+      // Send email via falkor-workflows /send-email
+      const email = userCtx.email || 'pgallivan@outlook.com';
       try {
         await fetch(`${WORKFLOWS_URL}/email`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
-          body: JSON.stringify({ to: toAddr, subject: action.subject, html: `<p>${action.body || action.content}</p>` }),
+          body: JSON.stringify({
+            to: email,
+            subject: action.subject,
+            html: `<p>${action.body}</p>`,
+          }),
         });
       } catch { /* non-fatal */ }
-      return `Queued to ${toAddr} — no direct send key available.`;
+      return `I'll send that to ${email}. Give me a moment.`;
     }
     case 'note': {
       try {
@@ -268,73 +183,6 @@ async function executeAction(action, userId, userCtx, pin, env) {
       } catch { /* non-fatal */ }
       return `Got it — I've saved that note: "${action.content}"`;
     }
-    case 'email_compose': {
-      // Compose and send email to an external recipient via AI + Resend
-      const resendKey = (env && env.RESEND_API_KEY) || '';
-      if (!resendKey) return 'Email unavailable — RESEND_API_KEY not set.';
-      let subject = (action.subject_hint || action.original || '').slice(0, 60);
-      let body = action.original || action.subject_hint || '';
-      try {
-        const composeResp = await fetch('https://asgard-ai.luckdragon.io/chat/smart', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Pin': '535554' },
-          body: JSON.stringify({
-            message: 'Write a brief professional email based on this: ' + action.original + '. Output ONLY valid JSON: {"subject":"...","body":"..."}',
-            model: 'haiku', max_tokens: 300,
-            system: 'Output only valid JSON with subject and body fields. Be concise and professional.',
-          }),
-        });
-        if (composeResp && composeResp.ok) {
-          const cd = await composeResp.json().catch(function() { return {}; });
-          const raw = (cd.reply || '').trim();
-          const m2 = raw.match(/\{[\s\S]*?\}/);
-          if (m2) {
-            try {
-              const composed = JSON.parse(m2[0]);
-              if (composed.subject) subject = composed.subject;
-              if (composed.body) body = composed.body;
-            } catch(pe) { /* use original */ }
-          }
-        }
-      } catch(ce) { /* compose optional */ }
-      const knownContacts = { paddy: 'pgallivan@outlook.com', me: 'pgallivan@outlook.com' };
-      const toKey = (action.to_name || '').toLowerCase().split(' ')[0];
-      const toAddr = knownContacts[toKey] || userCtx.email || 'pgallivan@outlook.com';
-      try {
-        const r = await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: { 'Authorization': 'Bearer ' + resendKey, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ from: 'Falkor <falkor@luckdragon.io>', to: [toAddr], subject: subject, text: body }),
-        });
-        const rd = await r.json().catch(function() { return {}; });
-        if (rd.id) return 'Email sent to ' + toAddr + ' — "' + subject + '" ✓';
-        return 'Email failed: ' + JSON.stringify(rd).slice(0, 100);
-      } catch(se) { return 'Email error: ' + se.message; }
-    }
-    case 'check_email': {
-      // Read Outlook inbox via Microsoft Graph API if token available
-      const graphToken = (env && (env.GRAPH_ACCESS_TOKEN || env.MS_ACCESS_TOKEN)) || '';
-      if (graphToken) {
-        try {
-          const resp = await fetch('https://graph.microsoft.com/v1.0/me/messages?$top=8&$orderby=receivedDateTime desc&$select=subject,from,receivedDateTime,isRead,bodyPreview', {
-            headers: { 'Authorization': 'Bearer ' + graphToken, 'Accept': 'application/json' },
-          });
-          if (resp.ok) {
-            const data = await resp.json().catch(function() { return {}; });
-            const msgs = data.value || [];
-            if (!msgs.length) return 'Inbox is clear.';
-            return 'Recent emails:\n' + msgs.map(function(m) {
-              const unread = m.isRead ? '' : '[unread] ';
-              const fromName = (m.from && m.from.emailAddress) ? (m.from.emailAddress.name || m.from.emailAddress.address) : 'unknown';
-              const d = new Date(m.receivedDateTime).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'Australia/Melbourne' });
-              return unread + m.subject + ' — ' + fromName + ' (' + d + ')';
-            }).join('\n');
-          }
-          if (resp.status === 401) return 'Microsoft token expired — refresh GRAPH_ACCESS_TOKEN in vault.';
-        } catch(ge) { return 'Email read error: ' + ge.message; }
-      }
-      return 'To read your Outlook inbox, add a GRAPH_ACCESS_TOKEN secret to falkor-agent. See Paddy for setup.';
-    }
     case 'remind': {
       try {
         await fetch(`${BRAIN_URL}/remember`, {
@@ -348,32 +196,6 @@ async function executeAction(action, userId, userCtx, pin, env) {
       } catch { /* non-fatal */ }
       return `Reminder saved: "${action.content}". I'll surface this when relevant.`;
     }
-    case 'task': {
-      try {
-        // Use WORKFLOWS_SERVICE binding if available on env (injected from DO env)
-        const wfUrl = 'https://falkor-workflows.luckdragon.io/tasks';
-        const wfReq = new Request(wfUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
-          body: JSON.stringify({
-            title: action.title || action.query,
-            type: action.taskType || 'research',
-            query: action.query,
-            notify: 1,
-          }),
-        });
-        const tRes = (env && env.WORKFLOWS_SERVICE)
-          ? await env.WORKFLOWS_SERVICE.fetch(wfReq)
-          : await fetch(wfReq);
-        const d = await tRes.json().catch(() => ({}));
-        if (d.ok) {
-          return `✅ Queued task #${d.id}: "${action.title}". I'll handle it in the background and notify you when done.`;
-        }
-        return `Couldn't queue task: ${d.error || 'unknown error'}`;
-      } catch(e) {
-        return `Task queue error: ${e.message}`;
-      }
-    }
   }
   return null;
 }
@@ -385,12 +207,11 @@ async function loadLiveContext(pin, aiPin) {
 
   const safe = (p) => Promise.race([p, timeout(4000)]).catch(() => null);
 
-  const [weather, calToday, calTomorrow, sport, nrlLadder] = await Promise.all([
+  const [weather, calToday, calTomorrow, sport] = await Promise.all([
     safe(fetch(`${WEATHER_URL}/weather?lat=${WPS_LAT}&lon=${WPS_LON}`, { headers: { 'X-Pin': aiPin } }).then(r => r.ok ? r.json() : null)),
     safe(fetch(`${CALENDAR_URL}/today`,    { headers: { 'X-Pin': pin } }).then(r => r.ok ? r.json() : null)),
     safe(fetch(`${CALENDAR_URL}/tomorrow`, { headers: { 'X-Pin': pin } }).then(r => r.ok ? r.json() : null)),
     safe(fetch(`${SPORT_URL}/summary`,     { headers: { 'X-Pin': pin } }).then(r => r.ok ? r.json() : null)),
-    safe(fetch(`${SPORT_URL}/nrl/ladder`,  { headers: { 'X-Pin': pin } }).then(r => r.ok ? r.json() : null)),
   ]);
 
   const lines = ['=== LIVE CONTEXT (fetched now) ==='];
@@ -426,13 +247,6 @@ async function loadLiveContext(pin, aiPin) {
     if (sport.tips_leader) lines.push(`FOOTY TIPS LEADER: ${sport.tips_leader}`);
   }
 
-  // NRL
-  if (nrlLadder && nrlLadder.ladder) {
-    const nrlTop3 = (nrlLadder.ladder || []).slice(0, 3).map(t => t.team || t.name).filter(Boolean).join(', ');
-    if (nrlLadder.season) lines.push('NRL SEASON: ' + nrlLadder.season);
-    if (nrlTop3) lines.push('NRL LADDER TOP 3: ' + nrlTop3);
-  }
-
   lines.push('=== END LIVE CONTEXT ===');
 
   // Only return something meaningful if we got real data
@@ -442,7 +256,7 @@ async function loadLiveContext(pin, aiPin) {
 
 // ── Auto-memory extractor ─────────────────────────────────────────────────────
 // Every MEMORY_EXTRACT_INTERVAL assistant turns, extract memorable facts via Haiku
-async function maybeExtractMemory(history, userId, pin, aiPin, aiUrl) {
+async function maybeExtractMemory(history, userId, pin, aiUrl) {
   // Count assistant turns
   const assistantTurns = history.filter(h => h.role === 'assistant').length;
   if (assistantTurns === 0 || assistantTurns % MEMORY_EXTRACT_INTERVAL !== 0) return;
@@ -510,8 +324,7 @@ export class FalkorAgent {
 
     if (path === '/chat' && request.method === 'POST') {
       const body = await request.json();
-      const { model, productContext } = body;
-      const text = body.text || body.message || '';
+      const { text, model, productContext } = body;
       const userId = request.headers.get('X-User-Id') || body.userId || 'paddy';
       const reply = await this.processChat(text, model || 'groq-fast', null, productContext, userId);
       return corsJson({ reply });
@@ -547,7 +360,7 @@ export class FalkorAgent {
       const memory = await this.getMemory();
       const ctxTs = await this.state.storage.get('liveContextTs');
       return corsJson({
-        version: '2.6.0',
+        version: '1.8.0',
         activeSessions: this.sessions.size,
         historyLength: history.length,
         memoryKeys: Object.keys(memory).length,
@@ -633,15 +446,15 @@ export class FalkorAgent {
     if (action) {
       const actionReply = await executeAction(action, userId, userCtx, pin, this.env);
       if (actionReply) {
-        // If it was purely an action (note/remind/task/check_email), respond directly without AI
-        if (action.type === 'note' || action.type === 'remind' || action.type === 'task' || action.type === 'check_email') {
+        // If it was purely an action (note/remind), respond directly
+        if (action.type === 'note' || action.type === 'remind') {
           history.push({ role: 'user', content: text, ts: Date.now() });
           history.push({ role: 'assistant', content: actionReply, ts: Date.now() });
           await this.state.storage.put('history', JSON.stringify(history.slice(-200)));
           this.broadcast({ type: 'assistant_reply', text: actionReply, model });
           return actionReply;
         }
-        // For email/email_compose, acknowledge and continue to AI for natural language confirmation
+        // For email, acknowledge then continue to also answer with AI
         this.broadcast({ type: 'action_taken', action: action.type, message: actionReply });
       }
     }
@@ -653,29 +466,26 @@ export class FalkorAgent {
     // ── 3. A2A Intent routing ─────────────────────────────────────────────────
     let pendingAgentCtx = '';
     const intent = routeIntent(text);
-    if (intent) {
+
+    // ── 3a. Image generation — early return, no LLM call needed ─────────────
+    if (intent && intent.agent === 'image') {
+      const imgData = await callSubAgent('image', 'generate', text, pin, aiPin);
+      if (imgData && imgData.url) {
+        history.push({ role: 'user', content: text, ts: Date.now() });
+        history.push({ role: 'assistant', content: '[image] ' + imgData.url, ts: Date.now() });
+        await this.state.storage.put('history', JSON.stringify(history.slice(-200)));
+        this.broadcast({ type: 'image_reply', url: imgData.url, prompt: text, revised_prompt: imgData.revised_prompt || '' });
+        return imgData.url;
+      }
+      // If image gen failed, fall through to regular chat with an explanation
+    }
+
+    if (intent && intent.agent !== 'image') {
       if (AGENT_MODEL_OVERRIDES[intent.agent]) model = AGENT_MODEL_OVERRIDES[intent.agent];
       const agentData = await callSubAgent(intent.agent, intent.action, text, pin, aiPin);
       if (agentData) {
-        // Special handling for web search: use the answer field prominently
-        if (intent.agent === 'web' && agentData.answer) {
-          const snippets = (agentData.results || []).slice(0, 3)
-            .map(r => `- ${r.title}: ${r.snippet || ''}`.slice(0, 120)).join('\n');
-          pendingAgentCtx = `\n\n## Web Search Results for "${text}"\nAnswer: ${agentData.answer}\n${snippets}\n\n(Use these results to answer the user — do not say you cannot search.)`;
-        } else if (intent.agent === 'desktop') {
-          if (agentData.vision_reply) {
-            // Screen vision result — inject the AI description directly
-            pendingAgentCtx = '\n\n[SCREEN VISION RESULT]\n' + agentData.vision_reply + '\n\n(The user asked you to describe their screen. The above is what the vision model saw. Present it naturally as your own observation — "On your screen I can see...")';
-          } else {
-            const cmdId = agentData.id || agentData.cmd_id || '?';
-            const cmdText = agentData.command || text;
-            const errMsg = agentData.error ? ' Error: ' + agentData.error : '';
-            pendingAgentCtx = '\n\n[DESKTOP COMMAND QUEUED] ID:' + cmdId + ' — ' + cmdText + errMsg + '. Tell the user the command has been queued and the local agent will execute it shortly.';
-          }
-        } else {
-          pendingAgentCtx = '\n\nLive data from falkor-' + intent.agent + ':\n' +
-            JSON.stringify(agentData, null, 2).slice(0, 1500);
-        }
+        pendingAgentCtx = '\n\nLive data from falkor-' + intent.agent + ':\n' +
+          JSON.stringify(agentData, null, 2).slice(0, 1500);
         if (intent.agent === 'sport' || intent.agent === 'kbt') {
           fetch(`${BRAIN_URL}/remember`, {
             method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
@@ -715,126 +525,45 @@ export class FalkorAgent {
     // ── 5. Build system prompt with live context injected ────────────────────
     const contextHistory = history.slice(-40).map(h => ({ role: h.role, content: h.content }));
 
-    // Time-awareness context (AEST = UTC+10)
-    const _nowAEST = new Date(Date.now() + 10 * 60 * 60 * 1000);
-    const _dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-    const _aestHour = _nowAEST.getUTCHours();
-    const _aestMin = _nowAEST.getUTCMinutes();
-    const _aestDay = _dayNames[_nowAEST.getUTCDay()];
-    const _aestDayNum = _nowAEST.getUTCDay();
-    const _isSchoolDay = _aestDayNum >= 1 && _aestDayNum <= 5;
-    const _isSchoolHours = _isSchoolDay && _aestHour >= 8 && _aestHour < 15;
-    const _isTipDeadline = _aestDayNum === 4 && _aestHour >= 17 && _aestHour < 21;
-    const _timeHint = _isSchoolHours
-      ? `${_aestDay} ${_aestHour}:${String(_aestMin).padStart(2,'0')} AEST — school hours`
-      : _isTipDeadline
-      ? `${_aestDay} ${_aestHour}:${String(_aestMin).padStart(2,'0')} AEST — tip deadline tonight!`
-      : `${_aestDay} ${_aestHour}:${String(_aestMin).padStart(2,'0')} AEST`;
-    const _timeContext = `Current time: ${_timeHint}`;
-    const _paddyState = getPaddyState();
-    const _stateContext = `Paddy's current mode: ${_paddyState.label}.${_paddyState.quiet ? ' Keep replies SHORT — one or two sentences max.' : ''}`;
-
     const systemPrompt = [
-      `You are Falkor — ${userCtx.name}'s personal AI. Built like Jarvis: direct, sharp, occasionally dry. Not a generic assistant — you know ${userCtx.name}'s world.`,
-      `## Who you're talking to:`,
-      `${userCtx.desc}`,
-      _timeContext,
-      _stateContext,
-      `## Personality rules (non-negotiable):`,
-      `- SHORT by default. 1–3 sentences unless the task genuinely demands more. Never pad.`,
-      `- No openers. Never start with "Certainly", "Great question", "Of course", "Sure", "Absolutely", "Happy to help", or any variant.`,
-      `- Never start a reply with the word "I".`,
-      `- Use ${userCtx.name}'s name once per reply — not every sentence.`,
-      `- Dry wit when it earns its place. One quip > two paragraphs.`,
-      `- Confidence. If you know it, say it. If you don't, one line. No hedging.`,
-      `- When you can ACT (send email, set reminder, check scores, run task) — do it and confirm. Don't just explain how.`,
-      `- Scan the live context for anything ${userCtx.name} cares about but hasn't asked. Worth mentioning: Essendon results, upcoming tipped horses, weather at WPS school.`,
-      `- No bullet points in conversational replies. Use them only for actual lists or multi-step instructions.`,
-      `- No emojis. Plain text only — no symbols, icons, or emoji in any reply.`,
-      `- Match energy: short question → short answer. Complex task → structured reply.`,
-      `- Web search results in context (## Web Search Results)? Use them. Never say you can't search.`,
-      `## What ${userCtx.name} follows:`,
-      `${userCtx.interests.join(' · ')}`,
+      `You are Falkor, ${userCtx.name}'s intelligent personal AI assistant — like Jarvis.`,
+      `${userCtx.name} is ${userCtx.desc}`,
+      `Always address ${userCtx.name} by name. Be concise, specific, and proactive.`,
+      `You already know what's happening in ${userCtx.name}'s world today — use the live context below to give immediate, useful answers without needing to be asked.`,
       systemExtra,
       liveContext,
       ragContext,
       productCtxStr,
     ].filter(Boolean).join('\n');
 
-    // ── 6. Call asgard-ai router (streaming when ws present) ────────────
+    // ── 6. Call asgard-ai router ──────────────────────────────────────────────
     let reply = '';
-    const msgId = 'msg_' + Date.now();
-
-    if (ws) {
-      // ── Streaming path: SSE → WS tokens ──────────────────────────────────
-      try {
-        const resp = await fetch(`${aiUrl}/chat/stream`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Pin': aiPin },
-          body: JSON.stringify({
-            messages: [...contextHistory, { role: 'user', content: text }],
-            system: systemPrompt,
-            model,
-            max_tokens: 2048,
-          }),
-        });
-        if (resp.ok) {
-          const reader = resp.body.getReader();
-          const decoder = new TextDecoder();
-          let buf = '';
-          let accumulated = '';
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buf += decoder.decode(value, { stream: true });
-            const lines = buf.split('\n');
-            buf = lines.pop();
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (!trimmed.startsWith('data:')) continue;
-              const raw = trimmed.slice(5).trim();
-              try {
-                const parsed = JSON.parse(raw);
-                if (parsed.t) {
-                  accumulated += parsed.t;
-                  // Broadcast token to all connected WS sessions
-                  this.broadcast({ type: 'token', msgId, text: accumulated });
-                }
-              } catch {}
-            }
-          }
-          reply = accumulated;
-        } else {
-          const errBody = await resp.text().catch(() => '');
-          reply = '[AI error: ' + resp.status + (errBody ? ': ' + errBody.slice(0, 80) : '') + ']';
-        }
-      } catch (err) {
-        reply = '[Stream error: ' + err.message + ']';
+    let modelUsed = model;
+    let providerUsed = '';
+    try {
+      const resp = await fetch(`${aiUrl}/chat/smart`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Pin': aiPin },
+        body: JSON.stringify({
+          message: text,
+          context: contextHistory,
+          system: systemPrompt,
+          model,
+          max_tokens: 2048,
+        }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        reply = data.reply || data.content || '';
+        // Capture which model was actually used (for UI badge)
+        modelUsed = data.model_key || data.model || model;
+        providerUsed = data.provider || '';
+      } else {
+        const errBody = await resp.text().catch(() => '');
+        reply = '[AI error: ' + resp.status + (errBody ? ': ' + errBody.slice(0, 100) : '') + ']';
       }
-    } else {
-      // ── Non-streaming path (REST /chat endpoint, widget, etc.) ───────────
-      try {
-        const resp = await fetch(`${aiUrl}/chat/smart`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Pin': aiPin },
-          body: JSON.stringify({
-            message: text,
-            context: contextHistory,
-            system: systemPrompt,
-            model,
-            max_tokens: 2048,
-          }),
-        });
-        if (resp.ok) {
-          const data = await resp.json();
-          reply = data.reply || data.content || '';
-        } else {
-          const errBody = await resp.text().catch(() => '');
-          reply = '[AI error: ' + resp.status + (errBody ? ': ' + errBody.slice(0, 100) : '') + ']';
-        }
-      } catch (err) {
-        reply = '[Connection error: ' + err.message + ']';
-      }
+    } catch (err) {
+      reply = '[Connection error: ' + err.message + ']';
     }
 
     // ── 7. Save to history ────────────────────────────────────────────────────
@@ -843,10 +572,9 @@ export class FalkorAgent {
     await this.state.storage.put('history', JSON.stringify(history.slice(-200)));
 
     // ── 8. Auto-memory extraction (every 5 turns, fire-and-forget) ────────────
-    maybeExtractMemory(history, userId, pin, aiPin, aiUrl).catch(() => {});
+    maybeExtractMemory(history, userId, pin, aiUrl).catch(() => {});
 
-    // Final reply broadcast (UI uses msgId to finalize streaming bubble)
-    this.broadcast({ type: 'assistant_reply', msgId, text: reply, model });
+    this.broadcast({ type: 'assistant_reply', text: reply, model: modelUsed, provider: providerUsed });
     return reply;
   }
 
@@ -899,107 +627,12 @@ export default {
     }
 
     if (url.pathname === '/health') {
-      return Response.json({ status: 'ok', version: '2.6.0', worker: 'falkor-agent' });
-    }
-
-    // ── /tasks proxy → falkor-workflows via service binding (no 522 loopback) ──
-    if (url.pathname === '/tasks') {
-      const method = request.method;
-      const pin = env.AGENT_PIN || '';
-      try {
-        const proxyTarget = `https://falkor-workflows.luckdragon.io/tasks`;
-        const proxyReq = new Request(proxyTarget, {
-          method,
-          headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
-          body: method === 'POST' ? request.body : undefined,
-        });
-        // Use service binding if available (avoids CF loopback 522)
-        const r = env.WORKFLOWS_SERVICE
-          ? await env.WORKFLOWS_SERVICE.fetch(proxyReq)
-          : await fetch(proxyReq);
-        const d = await r.json().catch(() => ({}));
-        return new Response(JSON.stringify(d), {
-          status: r.status,
-          headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
-        });
-      } catch(e) {
-        return new Response(JSON.stringify({ ok: false, error: e.message }), {
-          status: 502, headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
-        });
-      }
-    }
-
-
-    // ── /home — aggregated live data bundle for Home tab ──────────────────────
-    if (url.pathname === '/home' && request.method === 'GET') {
-      const pin = env.AGENT_PIN || '';
-      const aiPin = env.AI_WORKER_PIN || env.AGENT_PIN || '';
-      const aiUrl = env.AI_WORKER_URL || 'https://asgard-ai.luckdragon.io';
-      const safe = p => p.catch(() => null);
-      try {
-        const [weather, sport, nrlLadder, racingToday] = await Promise.all([
-          safe(fetch(`${aiUrl}/weather?lat=${WPS_LAT}&lon=${WPS_LON}`, { headers: { 'X-Pin': aiPin } }).then(r => r.ok ? r.json() : null)),
-          safe(fetch(`${SPORT_URL}/summary`, { headers: { 'X-Pin': pin } }).then(r => r.ok ? r.json() : null)),
-          safe(fetch(`${SPORT_URL}/nrl/ladder`, { headers: { 'X-Pin': pin } }).then(r => r.ok ? r.json() : null)),
-          safe(fetch(`${SPORT_URL}/racing/comp?pin=${pin}`).then(r => r.ok ? r.json() : null)),
-        ]);
-        // Find Essendon on AFL ladder
-        const ladder = sport?.ladder || [];
-        const essendon = ladder.find(t => /essendon|bombers/i.test(t.team)) || null;
-        const top5AFL = ladder.slice(0, 5);
-        const top4NRL = (nrlLadder?.ladder || []).slice(0, 4);
-        return corsJson({
-          ok: true,
-          ts: Date.now(),
-          weather: weather || null,
-          afl: {
-            round: sport?.round || null,
-            summary: sport?.summary || '',
-            top5: top5AFL,
-            essendon: essendon,
-          },
-          nrl: {
-            top4: top4NRL,
-          },
-          racing: {
-            today: racingToday?.tips || [],
-            date: racingToday?.date || null,
-          },
-        });
-      } catch (e) {
-        return corsJson({ ok: false, error: e.message }, 502);
-      }
-    }
-
-
-    // ── /vision — image analysis via asgard-ai (no DO, stateless) ─────────────
-    if (url.pathname === '/vision' && request.method === 'POST') {
-      const body = await request.json().catch(() => ({}));
-      const aiPin = env.AI_WORKER_PIN || env.AGENT_PIN || '';
-      const aiUrl = env.AI_WORKER_URL || 'https://asgard-ai.luckdragon.io';
-      try {
-        const vRes = await fetch(`${aiUrl}/chat/vision`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Pin': aiPin },
-          body: JSON.stringify({
-            image_base64: body.image_b64 || body.image_base64,
-            image_url: body.image_url,
-            image_mime: body.mime_type || body.image_mime || 'image/jpeg',
-            message: body.prompt || body.message || 'Describe this image clearly and concisely.',
-            model: body.model || 'haiku',
-            uid: body.userId || 'paddy',
-          })
-        });
-        const vd = await vRes.json().catch(() => ({}));
-        return corsJson(vd, vRes.status);
-      } catch (e) {
-        return corsJson({ ok: false, error: e.message }, 502);
-      }
+      return Response.json({ status: 'ok', version: '1.8.0', worker: 'falkor-agent' });
     }
 
     const userId = request.headers.get('X-User-Id') || url.searchParams.get('uid') || 'paddy';
-    const id = env.FALKOR_AGENT.idFromName(userId);
-    const stub = env.FALKOR_AGENT.get(id);
+    const id = env.AGENT.idFromName(userId);
+    const stub = env.AGENT.get(id);
     return stub.fetch(request);
   },
 };
