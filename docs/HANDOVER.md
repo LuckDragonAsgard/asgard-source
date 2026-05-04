@@ -1,117 +1,186 @@
-# Session Handover — 2026-05-04 (Session 4)
+# Session Handover — 2026-05-04 (Session 5)
 
 > **Engineering rules apply across all products** —
 > read [`docs/ENGINEERING-RULES.md`](ENGINEERING-RULES.md) at session start.
 > Every product has a `checks.py` that runs post-deploy. Template:
-> [`docs/checks.py.template`](checks.py.template). Sample implementation:
-> [`superleague-yeah-v4/sly-checks.py`](https://github.com/LuckDragonAsgard/superleague-yeah-v4/blob/main/sly-checks.py).
+> [`docs/checks.py.template`](checks.py.template).
 
-
-## What we did this session
-
-### 1. sportcarnival.com.au — Draw & Results Page
-- Built full draw/results page for Williamstown District XC 2026
-- Deployed live to sportcarnival.com.au via CF Worker `sportcarnival-hub`
-- Shows all 192 bib slots across 6 races, colour-coded by school
-- WPS runners highlighted with star, Sacred Heart slots marked TBC
-- Auto-connects to WS backend on page load with code WD26
-
-### 2. Carnival Timing — Code WD26
-- Created carnival directly in WS backend
-- **Carnival code: WD26**
-- 6 races pre-loaded: 10yr Girls/Boys 2km, 11yr Girls/Boys 3km, 12/13yr Girls/Boys 3km
-- sportcarnival.com.au auto-connects to WD26 and shows results live as published
-
-### 3. GitHub sync
-- sportcarnival-hub index.js pushed to PaddyGallivan/sportcarnival-hub
+**Vault PIN:** `535554`
+**Get any credential:** `curl -H "X-Pin: 535554" https://asgard-vault.pgallivan.workers.dev/secret/GITHUB_TOKEN`
 
 ---
 
-## Infrastructure state (as of 2026-05-04)
+## What we did this session (Session 5)
+
+### Clubhouse — Sports Club Platform (tasks #34–45)
+
+All 45 tasks complete. Full feature set live at https://clubhouse-e5e.pages.dev
+
+**Tasks completed:**
+- #34 Club membership check on all sensitive API endpoints
+- #35 Restrict fees admin to committee/admin role
+- #36 Team assignment UI in Admin panel (create teams, assign/remove players)
+- #37 Welcome email to new members on first login (via Resend)
+- #38 Profile edit: jumper number + positions fields
+- #39 Per-club feature toggles (admin can turn nav features on/off)
+- #40 Player photo upload via Cloudflare R2
+- #41 CSV bulk import (fixtures + roster)
+- #42 PlayHQ fixture sync (GraphQL API)
+- #43 PlayHQ full scraper via browser bookmarklet (DOM scrape → POST to API)
+- #44 Player stats entry system (AFL + Cricket, grid UI per fixture)
+- #45 Stats display on player profiles + Leaderboard page
+
+**Key additions:**
+- `ch_stats` table: per-player, per-fixture, per-stat-key (UNIQUE constraint)
+- `clubs` table: added `playhq_org_id`, `playhq_season_id`, `playhq_last_sync`, `sport`
+- `ch_fixtures` table: added `sport`, `playhq_id`, `competition`, `round_name`, `venue_address`
+- R2 bucket `clubhouse-media` bound via wrangler.toml (binding: `MEDIA`)
+- New pages: `StatsEntry.jsx`, `Leaderboard.jsx`
+- New components: `PlayerStats.jsx`, `Avatar.jsx`
+- New API endpoints: `fixtures/[id]/stats.js`, `stats/[userId].js`, `stats/leaderboard.js`, `sync/scrape.js`, `sync/playhq.js`, `upload/avatar.js`, `settings.js`, `import.js`
+
+---
+
+## What we did last session (Session 4)
+
+### sportcarnival.com.au — Draw & Results Page
+- Built full draw/results page for Williamstown District XC 2026
+- CF Worker `sportcarnival-hub`, auto-connects to WD26
+- 192 bib slots, 6 races, colour-coded by school
+
+### Carnival Timing — Code WD26
+- Carnival code: **WD26**, 6 races pre-loaded
+- District XC was Thursday May 7, McIvor Reserve Yarraville
+
+---
+
+## Infrastructure state (2026-05-04)
 
 | Service | URL | Status |
 |---|---|---|
-| Carnival Timing | https://carnivaltiming.com | v8.5.2 live |
-| Carnival WS / WD26 | wss://carnival-timing-ws.pgallivan.workers.dev/ws/WD26 | WD26 carnival created |
-| Sport Carnival | https://sportcarnival.com.au | draw/results live, auto-connects WD26 |
-| School Sport Portal | https://schoolsportportal.com.au | landing page only — app NOT built |
+| **Clubhouse** | https://clubhouse-e5e.pages.dev | 45 tasks live |
+| Carnival Timing | https://carnivaltiming.com | v8.5.2 |
+| Sport Carnival | https://sportcarnival.com.au | draw/results live |
+| School Sport Portal | https://schoolsportportal.com.au | landing only — app not built |
 | Asgard | https://asgard.luckdragon.io | live |
 | Vault | https://asgard-vault.pgallivan.workers.dev | live |
 
-**Vault PIN:** 535554
-**Credentials:** All in vault (GITHUB_TOKEN, CF_API_TOKEN, CF_ACCOUNT_ID etc) — retrieve via X-Pin: 535554
+---
+
+## Clubhouse — full technical reference
+
+**Repo:** `LuckDragonAsgard/clubhouse`
+**Stack:** React 18 + Vite + Tailwind + CF Pages Functions + D1 + R2
+
+**Active clubs:**
+| Slug | Club | Sport |
+|---|---|---|
+| `wcyms` | Williamstown CYMS FC | AFL |
+| `youlden` | Youlden Park Cricket Club | Cricket |
+| `cyms-cricket` | Williamstown CYMS Cricket Club | Cricket |
+
+**D1:** `b6275cb4-9c0f-4649-ae6a-f1c2e70e940f` (shared with Asgard brain)
+**CF Account:** `a6f47c17811ee2f8b6caeb8f38768c20`
+
+**Key DB tables:**
+- `clubs` — slug, name, sport, colours, features (JSON), playhq_org_id, playhq_season_id
+- `ch_users`, `ch_sessions`, `ch_memberships` (roles: admin/committee/coach/player/supporter)
+- `ch_fixtures` — **column is `opponent_name` NOT `opponent`** ← common bug
+- `ch_ladder`, `ch_stats`, `ch_teams`, `ch_team_members`
+- `ch_fees`, `ch_bf_votes`, `ch_availability`, `ch_training`, `ch_attendance`
+- `ch_announcements`, `ch_events`, `ch_push_subscriptions`, `ch_links`
+
+**Auth pattern (all sensitive endpoints):**
+```js
+export async function onRequestGet({ params, request, env }) { // MUST include `request`
+  const user = await AUTH(request, env)
+  if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
+  const { slug } = params
+  const { results: clubs } = await env.DB.prepare('SELECT id FROM clubs WHERE slug = ?').bind(slug).all()
+  const clubId = clubs[0].id
+  const { results: mem } = await env.DB.prepare(
+    "SELECT role FROM ch_memberships WHERE user_id = ? AND club_id = ? AND status = 'active'"
+  ).bind(user.id, clubId).all()
+}
+```
+
+**Deploy:**
+```bash
+curl -s -X POST \
+  "https://api.cloudflare.com/client/v4/accounts/a6f47c17811ee2f8b6caeb8f38768c20/pages/projects/clubhouse/deployments" \
+  -H "Authorization: Bearer $(curl -s -H 'X-Pin: 535554' https://asgard-vault.pgallivan.workers.dev/secret/CF_PAGES_TOKEN)" \
+  -H "Content-Type: application/json"
+```
+
+**GitHub push (URL-encode `[`→`%5B`, `]`→`%5D`):**
+```python
+import json, base64, urllib.request
+def push(path, content, message, sha=None):
+    url = f"https://api.github.com/repos/LuckDragonAsgard/clubhouse/contents/{path}"
+    body = {"message": message, "content": base64.b64encode(content.encode()).decode()}
+    if sha: body["sha"] = sha
+    req = urllib.request.Request(url, data=json.dumps(body).encode(),
+        headers={"Authorization": f"Bearer {GH_TOKEN}", "Content-Type": "application/json",
+                 "Accept": "application/vnd.github.v3+json", "User-Agent": "LuckDragon/1.0"}, method="PUT")
+    with urllib.request.urlopen(req) as r: return json.loads(r.read())
+```
+
+**Stats system (live):**
+- AFL: goals, behinds, kicks, handballs, disposals, marks, tackles, hitouts, frees_for, frees_against, votes
+- Cricket batting: runs, balls, fours, sixes, not_out
+- Cricket bowling: overs, maidens, wickets, runs_conceded
+- Entry: played fixture → 📊 Stats link → StatsEntry grid
+- Display: player profile → Season Stats. Nav → Stats Leaderboard.
+
+**PlayHQ (live):**
+- PlayHQ is a SPA — Cloudfront blocks server-side scraping
+- Bookmarklet: drag 🏉 button from Admin→Settings→PlayHQ to bookmarks, click on any PlayHQ page, scrapes DOM, posts to `/sync/scrape`
+- GraphQL API sync also available if club has PlayHQ API key
+
+**Feature toggles:** ladder, teams, training, events, bf_voting, matchday, chat, push, fees, news, sponsors, stats
+
+**wrangler.toml must include:**
+```toml
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "clubhouse-media"
+```
+
+**Common bugs:**
+1. Missing `request` in handler → AUTH throws ReferenceError → 500
+2. `clubId` used before DB fetch → wrong order
+3. `opponent` instead of `opponent_name` in fixture queries
+4. R2 binding missing from wrangler.toml → disappears on deploy
+5. CF Pages build: JSX syntax errors only surface at build time. Error 1101 = runtime exception.
+
+**Possible next features:** scheduled PlayHQ auto-sync, public club page, iOS push, match report PDFs, club website embed widget.
 
 ---
 
-## District Cross Country — Thursday May 7, 2026
+## Falkor fleet
 
-**Venue:** McIvor Reserve, Yarraville VIC 3013
-**Carnival Code: WD26**
-
-Race schedule:
-- 09:30 Briefing
-- 09:45 9/10 Girls 2km
-- 10:00 9/10 Boys 2km
-- 10:15 11 Girls 3km
-- 10:35 11 Boys 3km
-- 10:55 12/13 Girls 3km
-- 11:15 12/13 Boys 3km
-- 11:45 Presentations
-
-Spreadsheet ID: 1AsOip8iU7Veh8RkAoMbjwGNwBKXZwcpBI2ggjgnwu0c
-
-WPS Qualifiers:
-- 10 Girls: Eabha #29, Chloe #30, Rose #31, Sienna #32
-- 10 Boys: Elias #61, Thomas #62, Luca #63, William #64
-- 11 Girls: Emilia #93, Greta #94, Evie #95, Ava #96
-- 11 Boys: Henry #125, Ned #126, Kai #127, Bernie #128
-- 12 Girls: Danica #157, Lily #158, Irida #159, Lana #160
-- 12 Boys: Banjo #189, Jarvis #190, Otis #191, Hudson #192
-
-Sacred Heart: still no entries (bibs 13-16, 45-48, 77-80, 109-112, 141-144, 173-176)
-WPS DOBs: blank in spreadsheet — grab from Compass if needed
+17 workers live on luckdragon.io. AGENT_PIN: `<vault: AGENT_PIN>` (rotated Phase 16 2026-05-01).
+falkor-dashboard user-facing PIN: `luckdragon`
+VAULT_PIN (asgard-vault X-Pin): `535554`
 
 ---
 
-## How it works on race day
+## District Cross Country (WD26 — May 7)
 
-1. Paddy opens carnivaltiming.com, joins WD26 as Admin
-2. Marshals join WD26 as XC Marshal
-3. Each race: Admin arms, fires GO, marshals record bibs (name auto-shows)
-4. After each race: Admin publishes results — appear on sportcarnival.com.au live
-5. sportcarnival.com.au already connected to WD26, updates in real-time
-
----
-
-## Active Projects
-
-### Carnival Timing
-- v8.5.2 live, bib-to-name for 160 runners, WD26 ready for May 7
-
-### sportcarnival.com.au
-- Draw/results page live, CF Worker: sportcarnival-hub
-- GitHub: PaddyGallivan/sportcarnival-hub, auto-connects WD26
-
-### School Sport Portal (schoolsportportal.com.au)
-- Landing page + contact form only — NO app built yet
-- No user/auth/database — needs to be built from scratch
-- Next: coordinator dashboard, school registration, Stripe checkout
-
-### Falkor (asgard.luckdragon.io)
-- All 15 phases complete, 17 workers live
-
----
-
-## Immediate Next Steps
-
-1. Chase Sacred Heart for 16 runners before May 7
-2. WPS DOBs from Compass if needed for eligibility
-3. Race day Thursday May 7 — code WD26
-4. After carnival: build SSP app from scratch
-5. After carnival: open sportcarnival.com.au to all schools
+Carnival code: **WD26** | Venue: McIvor Reserve, Yarraville
+WPS qualifiers: 24 runners across 6 age groups (bibs 29-32, 61-64, 93-96, 125-128, 157-160, 189-192)
+Sacred Heart: 16 bibs still TBC (13-16, 45-48, 77-80, 109-112, 141-144, 173-176)
+Spreadsheet: `1AsOip8iU7Veh8RkAoMbjwGNwBKXZwcpBI2ggjgnwu0c`
 
 ---
 
 ## Context for new chat
 
-I'm Paddy, PE teacher at Williamstown Primary School. District XC carnival is Thursday May 7 at McIvor Reserve Yarraville. Carnival Timing code is **WD26** — carnivaltiming.com v8.5.2 with bib-to-name lookup for 160 runners. sportcarnival.com.au is live with full draw and live results (auto-connects to WD26). Sacred Heart still haven't submitted their 16 runners. School Sport Portal (schoolsportportal.com.au) is landing page only — no app built yet, need to build from scratch. Vault PIN: 535554. Credentials in vault. CF Account in vault as CF_ACCOUNT_ID. District spreadsheet ID: 1AsOip8iU7Veh8RkAoMbjwGNwBKXZwcpBI2ggjgnwu0c.
+I'm Paddy, PE teacher at WPS. Main projects right now:
+- **Clubhouse** (sports club platform, 45 tasks done, wcyms/youlden/cyms-cricket live)
+- **Carnival Timing / WD26** (district XC was May 7)
+- **School Sport Portal** (landing only, app not built yet)
+- **KBT Trivia** (asset pipeline + Google Slides)
+- **Superleague Yeah v4** (AFL fantasy draft, v4.28 live)
+
+Vault PIN: `535554`. All credentials in vault at https://asgard-vault.pgallivan.workers.dev
