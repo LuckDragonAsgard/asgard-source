@@ -1,4 +1,4 @@
-// streamlinewebapps-proxy v29 — major rebrand: violet+gold palette, how-it-works, testimonials, FAQ, toasts, admin
+// streamlinewebapps-proxy v30 — major rebrand: violet+gold palette, how-it-works, testimonials, FAQ, toasts, admin
 const SUPABASE = "https://huvfgenbcaiicatvtxak.supabase.co/functions/v1/streamline";
 const SUPA_REST = "https://huvfgenbcaiicatvtxak.supabase.co/rest/v1";
 const SUPA_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh1dmZnZW5iY2FpaWNhdHZ0eGFrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2MTczNjIsImV4cCI6MjA5MTE5MzM2Mn0.uTgzTKYjJnkFlRUIhGfW4ODKyV24xOdKaX7lxpDuMfc";
@@ -303,7 +303,7 @@ footer p{font-size:13px;color:var(--ink-3);margin:0}
       <a href="/terms">Terms</a>
       <a href="/refunds">Refunds</a>
     </div>
-    <p>© 2026 Luck Dragon</p>
+    <p>© 2026 Luck Dragon Pty Ltd (ABN 64 697 434 898)</p>
   </div>
 </footer>
 </body></html>`;
@@ -457,7 +457,7 @@ footer p{font-size:13px;color:var(--ink-3);margin:0}
       <a href="/terms">Terms</a>
       <a href="/refunds">Refunds</a>
     </div>
-    <p>© 2026 Luck Dragon</p>
+    <p>© 2026 Luck Dragon Pty Ltd (ABN 64 697 434 898)</p>
   </div>
 </footer>
 </body></html>`;
@@ -586,7 +586,7 @@ footer p{font-size:13px;color:var(--ink-3);margin:0}
       <a href="/terms">Terms</a>
       <a href="/refunds">Refunds</a>
     </div>
-    <p>© 2026 Luck Dragon</p>
+    <p>© 2026 Luck Dragon Pty Ltd (ABN 64 697 434 898)</p>
   </div>
 </footer>
 </body></html>`;
@@ -1231,7 +1231,7 @@ footer{background:var(--ink);color:rgba(255,255,255,.55);padding:56px 40px 36px;
       </div>
     </div>
     <div class="foot-bottom">
-      <p class="foot-copy">© 2025 Luck Dragon Pty Ltd · Melbourne, Australia · <a href="mailto:hello@streamlinewebapps.com" style="color:rgba(255,255,255,.5)">hello@streamlinewebapps.com</a></p>
+      <p class="foot-copy">© 2026 Luck Dragon Pty Ltd (ABN 64 697 434 898) · Melbourne, Australia · <a href="mailto:hello@streamlinewebapps.com" style="color:rgba(255,255,255,.5)">hello@streamlinewebapps.com</a></p>
       <div class="foot-legal">
         <a href="/privacy">Privacy</a>
         <a href="/terms">Terms</a>
