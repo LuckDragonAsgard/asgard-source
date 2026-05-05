@@ -1483,7 +1483,7 @@ function TypingIndicator({ text }) {
         React.createElement('div', { className: 'msg-role' }, '🐉 Falkor'),
         React.createElement('div', { className: 'msg-bubble', style: { padding: '12px 16px' } },
           text
-            ? React.createElement('span', { dangerouslySetInnerHTML: { __html: renderMarkdown(text) } })
+            ? React.createElement('span', null, text)
             : React.createElement(React.Fragment, null,
                 React.createElement('span', { className: 'typing-dot' }),
                 React.createElement('span', { className: 'typing-dot' }),
