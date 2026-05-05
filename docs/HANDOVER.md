@@ -76,7 +76,8 @@ All 45 tasks complete. Full feature set live at https://clubhouse-e5e.pages.dev
 | **Super League Yeah** | https://superleague.streamlinewebapps.com | opp matchup fixed |
 | **Asgard** | https://asgard.luckdragon.io | model badge + email FR |
 | **WPS Hub v3** | wps-hub-v3.luckdragon.io | PIN rotated, fail-closed |
-| Clubhouse | https://clubhouse-e5e.pages.dev | 45 tasks live |
+| Clubhouse |
+| **Family Hub** | https://hub.luckdragon.io | v16-p, 14 members, encrypted chats + push + pocket money | https://clubhouse-e5e.pages.dev | 45 tasks live |
 | Carnival Timing | https://carnivaltiming.com | v8.5.2 |
 | Sport Carnival | https://sportcarnival.com.au | draw/results live |
 | Vault | https://asgard-vault.pgallivan.workers.dev | PIN 535554 |
@@ -146,3 +147,23 @@ Key rows updated this session:
 - id=46 Asgard — model badge + email FR
 - id=48 LessonLab — compliance complete
 - id=53 WPS Hub v3 — PIN rotated, fail-closed
+
+
+---
+
+## Family Hub — full technical reference
+
+**Repo:** `LuckDragonAsgard/falkor-family`
+**Detail handover:** `LuckDragonAsgard/falkor-family/RESUME-HERE.md` (always read this first when working on Family Hub)
+**Live:** https://hub.luckdragon.io · **Marketing:** https://hub.luckdragon.io/landing
+**Stack:** Single-file CF Worker (~322 KB) + D1 + R2 + Resend + Web Push (VAPID)
+
+**D1:** `family-hub` — `abcbe15d-9a98-4e01-82eb-c82a0acd1443`
+**R2 bucket:** `family-hub-photos` (binding: PHOTOS)
+**Worker secrets:** ENCRYPTION_KEY, APP_SECRET, RESEND_API_KEY, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY (use `inherit` binding type on deploy or they get nuked)
+
+**Status (v16-p, 2026-05-04):** all 14 Gallivan family members invited, 8 registered. Encrypted chats (per-chat HKDF AES-256-GCM), feed, 14 More-tab features incl. pocket money ledger with kid-request → admin-approve flow. Search across posts, chat messages, events, people. Server-side read receipts with avatar dots. Typing indicators. Audit log. Active sessions + account delete. VAPID push wired (needs end-to-end smoke test on real device).
+
+**Critical:** the SPA HTML+JS is returned from `getSPA()` as a single template literal. Inside that literal, `\n` becomes a real newline (breaking JS strings), and `${...}` is evaluated unless escaped as `\${...}`. Always verify against live HTML, not `/tmp/index.js` — patch scripts that re-curl from GitHub will overwrite in-memory changes. `async async function` (a botched edit) silently breaks ALL JS defined later — symptom: clicks do nothing on Profile / PIN / search.
+
+D1 product row: `asgard-prod.products` id=53.
