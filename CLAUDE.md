@@ -170,7 +170,6 @@ This endpoint (to be built) should:
 Until that endpoint exists: Falkor should include discovered traps in its wrap-up summary
 so Claude can manually add them to this file.
 
-- TEST: log-trap endpoint verified live [auto: asgard-tools, 2026-05-05]
 ## Self-improvement rule
 At the end of every session where a new bug or trap was encountered:
 1. Add it to the "Known traps" section of this file
