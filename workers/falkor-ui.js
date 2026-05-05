@@ -1478,16 +1478,20 @@ function MessageBubble({ msg }) {
   );
 }
 
-function TypingIndicator() {
-  return (
-    <div className="msg-row assistant">
-      <div className="msg-role">🐉 Falkor</div>
-      <div className="msg-bubble" style={{ padding:'12px 16px' }}>
-        <span className="typing-dot"/><span className="typing-dot"/><span className="typing-dot"/>
-      </div>
-    </div>
-  );
-}
+function TypingIndicator({ text }) {
+      return React.createElement('div', { className: 'msg-row assistant' },
+        React.createElement('div', { className: 'msg-role' }, '🐉 Falkor'),
+        React.createElement('div', { className: 'msg-bubble', style: { padding: '12px 16px' } },
+          text
+            ? React.createElement('span', { dangerouslySetInnerHTML: { __html: renderMarkdown(text) } })
+            : React.createElement(React.Fragment, null,
+                React.createElement('span', { className: 'typing-dot' }),
+                React.createElement('span', { className: 'typing-dot' }),
+                React.createElement('span', { className: 'typing-dot' })
+              )
+        )
+      );
+    }
 
 
 // ─── KBTPanel — Game Pack Builder ────────────────────────────────────────────
@@ -2472,6 +2476,7 @@ function App() {
   const interruptRecogRef = useRef(null);
   const audioQueueRef     = useRef([]);
   const audioPlayingRef   = useRef(false);
+  const [streamingText, setStreamingText] = useState('');
   const activeIdRef      = useRef(activeId);
   const streamTimerRef   = useRef(null);
 
@@ -2531,8 +2536,11 @@ function App() {
           const cid = activeIdRef.current;
           const imgMsg = { id: uid(), role: 'assistant', content: '', imageUrl: msg.url, imagePrompt: msg.revised_prompt || msg.prompt || '', ts: Date.now(), modelBadge: '🎨 DALL·E' };
           setConvos(prev => prev.map(c => c.id === cid ? { ...c, messages:[...(c.messages||[]), imgMsg] } : c));
+        } else if (msg.type === 'token') {
+          setStreamingText(msg.text || '');
         } else if (msg.type === 'assistant_reply') {
           setTyping(false);
+          setStreamingText('');
           const fullText = msg.text || '';
           const msgId = uid();
           const cid = activeIdRef.current;
@@ -2975,7 +2983,7 @@ function App() {
             ) : (
               <div className="messages">
                 {(activeConvo.messages || []).map(m => <MessageBubble key={m.id} msg={m}/>)}
-                {typing && <TypingIndicator/>}
+                {typing && <TypingIndicator text={streamingText}/>}
                 <div ref={endRef}/>
               </div>
             )}
