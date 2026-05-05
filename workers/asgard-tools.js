@@ -111,7 +111,81 @@ const TOOLS = [
       type: 'object',
       properties: {
         worker_name: { type: 'string', description: 'CF Worker script name to deploy to' },
-        code: { type: 'string', description: 'Complete JavaScript source (ES module with export default { async fetch(request, env) {...} })' },
+        code: { type: 'string', description: 'Complete JavaScript source (ES module with 
+// ---- MONITOR ----
+async function runMonitor(env) {
+  const cfToken = env.CF_API_TOKEN;
+  const ACCT = 'a6f47c17811ee2f8b6caeb8f38768c20';
+  const DB_ID = 'b6275cb4-9c0f-4649-ae6a-f1c2e70e940f';
+
+  // Get all live products with URLs
+  const d1Res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${ACCT}/d1/database/${DB_ID}/query`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json','Authorization':`Bearer ${cfToken}`},
+    body: JSON.stringify({sql:"SELECT project_name, live_url FROM products WHERE status='live' AND live_url IS NOT NULL AND live_url != ''"})
+  });
+  const d1J = await d1Res.json();
+  const products = d1J.result?.[0]?.results || [];
+
+  // Check each URL
+  const results = await Promise.all(products.map(async p => {
+    const start = Date.now();
+    try {
+      const r = await fetch(p.live_url, { method: 'HEAD', signal: AbortSignal.timeout(10000), redirect: 'follow' });
+      const ms = Date.now() - start;
+      return { project_name: p.project_name, live_url: p.live_url, status_code: r.status, ok: r.ok ? 1 : 0, response_ms: ms, error: null };
+    } catch(e) {
+      return { project_name: p.project_name, live_url: p.live_url, status_code: null, ok: 0, response_ms: Date.now()-start, error: e.message.substring(0,200) };
+    }
+  }));
+
+  // Log all results to D1
+  const now = Date.now();
+  for (const r of results) {
+    await fetch(`https://api.cloudflare.com/client/v4/accounts/${ACCT}/d1/database/${DB_ID}/query`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json','Authorization':`Bearer ${cfToken}`},
+      body: JSON.stringify({sql:"INSERT INTO product_checks (checked_at,project_name,live_url,status_code,ok,response_ms,error) VALUES (?,?,?,?,?,?,?)", params:[now,r.project_name,r.live_url,r.status_code,r.ok,r.response_ms,r.error]})
+    });
+  }
+
+  // Find failures
+  const failures = results.filter(r => !r.ok);
+  if (failures.length > 0) {
+    // Get previous check results to avoid re-alerting on known failures
+    const prevRes = await fetch(`https://api.cloudflare.com/client/v4/accounts/${ACCT}/d1/database/${DB_ID}/query`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json','Authorization':`Bearer ${cfToken}`},
+      body: JSON.stringify({sql:`SELECT project_name, ok FROM product_checks WHERE checked_at = (SELECT MAX(checked_at) FROM product_checks WHERE checked_at < ${now}) GROUP BY project_name`})
+    });
+    const prevJ = await prevRes.json();
+    const prevMap = {};
+    for (const p of (prevJ.result?.[0]?.results || [])) prevMap[p.project_name] = p.ok;
+
+    // Only alert on NEW failures (were ok before, now failing)
+    const newFailures = failures.filter(f => prevMap[f.project_name] !== 0);
+
+    if (newFailures.length > 0) {
+      const resendKey = env.RESEND_API_KEY;
+      const body = newFailures.map(f => `• ${f.project_name}\n  URL: ${f.live_url}\n  Status: ${f.status_code || 'timeout/error'}\n  Error: ${f.error || '-'}\n  Response: ${f.response_ms}ms`).join('\n\n');
+      await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json','Authorization':`Bearer ${resendKey}`},
+        body: JSON.stringify({
+          from: 'Falkor Monitor <hello@luckdragon.io>',
+          to: ['paddy@luckdragon.io'],
+          subject: `🚨 ${newFailures.length} product${newFailures.length>1?'s':''} down — ${new Date().toISOString().split('T')[0]}`,
+          text: `Falkor detected new failures:\n\n${body}\n\nAll checks: ${results.length} products checked, ${failures.length} failing, ${results.length-failures.length} ok.\n\nFull log: https://asgard.luckdragon.io`
+        })
+      });
+    }
+  }
+
+  return { checked: results.length, failures: failures.length, new_failures: 0, results };
+}
+// ---- END MONITOR ----
+
+export default { async fetch(request, env) {...} })' },
         main_module: { type: 'string', description: 'Filename for the main module. Use "asgard.js" for the asgard worker, "worker.js" for everything else. Default: worker.js' }
       },
       required: ['worker_name', 'code']
@@ -427,6 +501,9 @@ async function handleChatSmart(request, env, corsHeaders) {
 }
 
 export default {
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(runMonitor(env));
+  },
   async fetch(request, env) {
     const allowedOrigins = [
       'https://asgard.luckdragon.io',
@@ -679,6 +756,19 @@ export default {
         return new Response(brief, { headers: {...cors, 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store'} });
       } catch(e) {
         return Response.json({error:'Brief failed', detail:e.message},{status:500,headers:cors});
+      }
+    }
+
+
+    // /monitor/run — manually trigger a monitor check
+    if (pathname === '/monitor/run' && request.method === 'POST') {
+      const pin = request.headers.get('X-Pin');
+      if (pin !== env.PADDY_PIN && pin !== env.JACKY_PIN) return Response.json({error:'Forbidden'},{status:403,headers:cors});
+      try {
+        const result = await runMonitor(env);
+        return Response.json(result, {headers:cors});
+      } catch(e) {
+        return Response.json({error:e.message},{status:500,headers:cors});
       }
     }
 
