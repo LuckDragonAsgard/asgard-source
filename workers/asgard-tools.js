@@ -656,7 +656,7 @@ export default {
         const handover = await handoverRes.text();
         const claudeMd = await claudeRes.text();
         let products = [];
-        try { const d1J = await d1Res.json(); products = d1J.results || d1J.result || []; } catch(e) {}
+        try { const d1J = await d1Res.json(); products = (d1J.result && d1J.result[0] && d1J.result[0].results) || d1J.results || []; } catch(e) {}
 
         const productTable = products.length
           ? '## Live product states (from D1)\n' + products.map(p => `- **${p.project_name}** — ${p.status} ${p.progress_pct||0}% — Next: ${p.next_action||'?'}`).join('\n')
