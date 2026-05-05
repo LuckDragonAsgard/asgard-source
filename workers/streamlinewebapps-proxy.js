@@ -1,4 +1,4 @@
-// streamlinewebapps-proxy v30 — major rebrand: violet+gold palette, how-it-works, testimonials, FAQ, toasts, admin
+// streamlinewebapps-proxy v31 — major rebrand: violet+gold palette, how-it-works, testimonials, FAQ, toasts, admin
 const SUPABASE = "https://huvfgenbcaiicatvtxak.supabase.co/functions/v1/streamline";
 const SUPA_REST = "https://huvfgenbcaiicatvtxak.supabase.co/rest/v1";
 const SUPA_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh1dmZnZW5iY2FpaWNhdHZ0eGFrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2MTczNjIsImV4cCI6MjA5MTE5MzM2Mn0.uTgzTKYjJnkFlRUIhGfW4ODKyV24xOdKaX7lxpDuMfc";
@@ -73,7 +73,7 @@ async function handleSubmit(request, env) {
       method: "POST",
       headers: {"Authorization": "Bearer "+env.RESEND_KEY, "Content-Type": "application/json"},
       body: JSON.stringify({
-        from: "Streamline <noreply@luckdragon.io>",
+        from: "Streamline <hello@streamlinewebapps.com>",
         to: ["pgallivan@outlook.com"],
         subject: "New submission: \""+title+"\" ("+tier+")",
         html: "<div style='font-family:Inter,sans-serif;max-width:560px;padding:32px 24px'>"+
@@ -96,7 +96,7 @@ async function handleSubmit(request, env) {
       method: "POST",
       headers: {"Authorization": "Bearer "+env.RESEND_KEY, "Content-Type": "application/json"},
       body: JSON.stringify({
-        from: "Streamline <noreply@luckdragon.io>",
+        from: "Streamline <hello@streamlinewebapps.com>",
         to: [email],
         subject: "Complete your submission: \""+title+"\"",
         html: "<div style='font-family:Inter,sans-serif;max-width:560px;margin:0 auto;padding:40px 24px'>"+
