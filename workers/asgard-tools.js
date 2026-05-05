@@ -647,10 +647,10 @@ export default {
         const [handoverRes, claudeRes, d1Res] = await Promise.all([
           fetch('https://raw.githubusercontent.com/LuckDragonAsgard/asgard-source/main/docs/HANDOVER.md'),
           fetch('https://raw.githubusercontent.com/LuckDragonAsgard/asgard-source/main/CLAUDE.md'),
-          fetch('https://asgard-brain.luckdragon.io/d1/query', {
+          fetch('https://api.cloudflare.com/client/v4/accounts/a6f47c17811ee2f8b6caeb8f38768c20/d1/database/b6275cb4-9c0f-4649-ae6a-f1c2e70e940f/query', {
             method: 'POST',
-            headers: {'Content-Type':'application/json','X-Pin':pin},
-            body: JSON.stringify({sql:"SELECT name, status, progress, next_action FROM products WHERE status != 'archived' ORDER BY progress DESC LIMIT 50"})
+            headers: {'Content-Type':'application/json','Authorization':'Bearer '+env.CF_API_TOKEN},
+            body: JSON.stringify({sql:"SELECT project_name, status, progress_pct, next_action FROM products WHERE status != 'archived' ORDER BY progress_pct DESC LIMIT 50"})
           })
         ]);
         const handover = await handoverRes.text();
@@ -659,7 +659,7 @@ export default {
         try { const d1J = await d1Res.json(); products = d1J.results || d1J.result || []; } catch(e) {}
 
         const productTable = products.length
-          ? '## Live product states (from D1)\n' + products.map(p => `- **${p.name}** — ${p.status} ${p.progress||0}% — Next: ${p.next_action||'?'}`).join('\n')
+          ? '## Live product states (from D1)\n' + products.map(p => `- **${p.project_name}** — ${p.status} ${p.progress_pct||0}% — Next: ${p.next_action||'?'}`).join('\n')
           : '';
 
         const brief = [
