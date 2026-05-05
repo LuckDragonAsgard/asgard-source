@@ -772,6 +772,19 @@ export default {
       }
     }
 
+
+    // /monitor/run — manually trigger Falkor monitor
+    if (pathname === '/monitor/run' && request.method === 'POST') {
+      const pin = request.headers.get('X-Pin');
+      if (pin !== env.PADDY_PIN && pin !== env.JACKY_PIN) return Response.json({error:'Forbidden'},{status:403,headers:cors});
+      try {
+        const result = await runMonitor(env);
+        return Response.json(result, {headers:cors});
+      } catch(e) {
+        return Response.json({error:e.message},{status:500,headers:cors});
+      }
+    }
+
     return new Response('Not found', { status: 404, headers: cors });
   }
 };
@@ -791,6 +804,67 @@ async function _logError(env, worker, endpoint, message, detail, stack) {
   await env.DB.prepare("INSERT INTO errors (ts, worker, endpoint, message, detail, stack) VALUES (?, ?, ?, ?, ?, ?)")
     .bind(Date.now(), worker, endpoint, String(message || '').slice(0, 1000), String(detail || '').slice(0, 4000), String(stack || '').slice(0, 2000)).run();
 }
+
+// ---- FALKOR MONITOR ----
+async function runMonitor(env) {
+  const cfToken = env.CF_API_TOKEN;
+  const ACCT = 'a6f47c17811ee2f8b6caeb8f38768c20';
+  const DB_ID = 'b6275cb4-9c0f-4649-ae6a-f1c2e70e940f';
+
+  async function d1q(sql, params) {
+    const r = await fetch('https://api.cloudflare.com/client/v4/accounts/'+ACCT+'/d1/database/'+DB_ID+'/query', {
+      method:'POST', headers:{'Content-Type':'application/json','Authorization':'Bearer '+cfToken},
+      body: JSON.stringify({sql, params})
+    });
+    const j = await r.json();
+    return j.result?.[0]?.results || [];
+  }
+
+  const products = await d1q("SELECT project_name, live_url FROM products WHERE status='live' AND live_url IS NOT NULL AND live_url != ''");
+
+  const results = await Promise.all(products.map(async function(p) {
+    const start = Date.now();
+    try {
+      const r = await fetch(p.live_url, { method:'HEAD', signal: AbortSignal.timeout(10000), redirect:'follow' });
+      return { project_name:p.project_name, live_url:p.live_url, status_code:r.status, ok:r.ok?1:0, response_ms:Date.now()-start, error:null };
+    } catch(e) {
+      return { project_name:p.project_name, live_url:p.live_url, status_code:null, ok:0, response_ms:Date.now()-start, error:e.message.substring(0,200) };
+    }
+  }));
+
+  const now = Date.now();
+  for (const r of results) {
+    await d1q("INSERT INTO product_checks (checked_at,project_name,live_url,status_code,ok,response_ms,error) VALUES (?,?,?,?,?,?,?)",
+      [now, r.project_name, r.live_url, r.status_code, r.ok, r.response_ms, r.error]);
+  }
+
+  const failures = results.filter(function(r){ return !r.ok; });
+
+  if (failures.length > 0) {
+    const prev = await d1q("SELECT project_name, ok FROM product_checks WHERE checked_at = (SELECT MAX(checked_at) FROM product_checks WHERE checked_at < "+now+") GROUP BY project_name");
+    const prevMap = {};
+    for (const p of prev) prevMap[p.project_name] = p.ok;
+    const newFails = failures.filter(function(f){ return prevMap[f.project_name] !== 0; });
+
+    if (newFails.length > 0 && env.RESEND_API_KEY) {
+      const body = newFails.map(function(f){ return '* '+f.project_name+'\n  '+f.live_url+'\n  Status: '+(f.status_code||'timeout')+'\n  '+( f.error||''); }).join('\n\n');
+      await fetch('https://api.resend.com/emails', {
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+env.RESEND_API_KEY},
+        body: JSON.stringify({
+          from:'Falkor Monitor <hello@luckdragon.io>',
+          to:['paddy@luckdragon.io'],
+          subject: newFails.length+' product'+(newFails.length>1?'s':'')+' down - '+new Date().toISOString().split('T')[0],
+          text: 'Falkor detected new failures:\n\n'+body+'\n\nChecked '+results.length+' products, '+failures.length+' failing.\n\nhttps://asgard.luckdragon.io'
+        })
+      });
+    }
+  }
+
+  return { checked:results.length, failures:failures.length, results };
+}
+// ---- END FALKOR MONITOR ----
+
 
 async function _autoCommitSource(env, worker_name, code) {
   if (!env.GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing');
