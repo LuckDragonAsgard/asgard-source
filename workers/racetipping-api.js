@@ -446,6 +446,19 @@ async function handleAPI(request, env, url, path, method) {
     }
     return json({ received: true });
   }
+  // Super-admin routes — must be before getOrg so slug="super" doesn't 404
+  if (slug === "super" && parts[2] === "orgs" && method === "GET") {
+    if (!superPin) return err("Unauthorised", 401);
+    const orgs = await db.prepare(`SELECT id,name,slug,admin_email,is_active,subscription_status,race_days_used,stripe_customer_id,created_at FROM organisations ORDER BY created_at DESC`).all();
+    return json(orgs.results);
+  }
+  if (slug === "super" && parts[2] === "activate" && method === "POST") {
+    if (!superPin) return err("Unauthorised", 401);
+    const { org_slug, status = "active" } = body;
+    if (!org_slug) return err("org_slug required");
+    await db.prepare(`UPDATE organisations SET subscription_status=? WHERE slug=?`).bind(status, org_slug).run();
+    return json({ ok: true, org_slug, status });
+  }
   const org = await getOrg(db, slug);
   if (!org) return err("Comp not found", 404);
   const isAdmin = superPin || await validateSession(db, bearerToken, org.id);
@@ -731,18 +744,6 @@ async function handleAPI(request, env, url, path, method) {
     if (summary.error) return err(summary.error);
     return json(summary);
   }
-  if (slug === "super" && parts[2] === "orgs" && method === "GET") {
-    if (!superPin) return err("Unauthorised", 401);
-    const orgs = await db.prepare(`SELECT id,name,slug,admin_email,is_active,subscription_status,race_days_used,created_at FROM organisations ORDER BY created_at DESC`).all();
-    return json(orgs.results);
-  }
-  if (slug === "super" && parts[2] === "activate" && method === "POST") {
-    if (!superPin) return err("Unauthorised", 401);
-    const { org_slug, status = "active" } = body;
-    if (!org_slug) return err("org_slug required");
-    await db.prepare(`UPDATE organisations SET subscription_status=? WHERE slug=?`).bind(status, org_slug).run();
-    return json({ ok: true, org_slug, status });
-  }
   if (sub === "/stripe/checkout" && method === "POST") {
     if (!isAdmin) return err("Unauthorised", 401);
     if (!env.STRIPE_SECRET_KEY) return err("Stripe not configured", 500);
@@ -766,6 +767,21 @@ async function handleAPI(request, env, url, path, method) {
       });
       if (session.error) return err(session.error.message || "Stripe error", 500);
       return json({ url: session.url });
+    } catch (e) {
+      return err("Stripe request failed: " + e.message, 500);
+    }
+  }
+  if (sub === "/stripe/billing-portal" && method === "POST") {
+    if (!isAdmin) return err("Unauthorised", 401);
+    if (!env.STRIPE_SECRET_KEY) return err("Stripe not configured", 500);
+    if (!org.stripe_customer_id) return err("No active subscription found", 400);
+    try {
+      const portal = await stripe(env, "POST", "/billing_portal/sessions", {
+        customer: org.stripe_customer_id,
+        return_url: `https://horseracetipping.com/${org.slug}`
+      });
+      if (portal.error) return err(portal.error.message || "Stripe error", 500);
+      return json({ url: portal.url });
     } catch (e) {
       return err("Stripe request failed: " + e.message, 500);
     }
@@ -1367,7 +1383,35 @@ function orgHTML(org, settings) {
       </div>
     </div>
 
-    <!-- Setup Race Day -->
+
+    <!-- Subscription Status -->
+    <div class="card">
+      <h2>\u{1F4B3} Subscription</h2>
+      ${subStatus === "active" ? `
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+        <div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+            <span class="badge badge-green">\u2713 Active</span>
+            <span style="font-weight:600">$20 / month</span>
+          </div>
+          <div style="font-size:0.82rem;color:var(--muted)">Unlimited race days \xB7 Billing managed via Stripe</div>
+        </div>
+        <button class="btn btn-sm" onclick="manageBilling()" style="background:#243447;color:var(--text);border:1px solid #344d66">Manage / Cancel \u2192</button>
+      </div>` : subStatus === "trial" ? `
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+        <div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+            <span class="badge badge-gold">Free Trial</span>
+            <span style="font-weight:600">${raceDaysUsed} of 2 race days used</span>
+          </div>
+          <div style="font-size:0.82rem;color:var(--muted)">Subscribe at $20/month for unlimited race days</div>
+        </div>
+        <button class="btn btn-gold btn-sm" onclick="doSubscribe()">Subscribe \u2192</button>
+      </div>` : `
+      <div style="color:var(--red)">Account suspended \u2014 <button class="btn btn-gold btn-sm" onclick="doSubscribe()">Reactivate \u2192</button></div>`}
+    </div>
+
+        <!-- Setup Race Day -->
     <div class="card">
       <h2>\u{1F4C5} Setup Race Day</h2>
       <input id="rdName" placeholder="Name (e.g. Melbourne Cup Day 2026)" />
@@ -1861,6 +1905,14 @@ async function adminLogin(){
 }
 
 function adminLogout(){adminToken='';localStorage.removeItem('adminToken_'+ORG_SLUG);document.getElementById('adminPanel').style.display='none';document.getElementById('adminLoginCard').style.display='block';}
+
+async function manageBilling(){
+  try{
+    const r=await fetch(API+'/stripe/billing-portal',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+adminToken}}).then(r=>r.json());
+    if(r.url){window.location.href=r.url;}
+    else{alert(r.error||'Could not open billing portal \u2014 email pgallivan@outlook.com');}
+  }catch(e){alert('Request failed \u2014 check your connection');}
+}
 
 async function doSubscribe(){
   const btn=document.getElementById('subscribeBtn');
