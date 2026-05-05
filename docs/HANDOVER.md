@@ -1,4 +1,4 @@
-# Session Handover — 2026-05-04 (Session 5)
+# Session Handover — 2026-05-05 (Session 6)
 
 > **Engineering rules apply across all products** —
 > read [`docs/ENGINEERING-RULES.md`](ENGINEERING-RULES.md) at session start.
@@ -10,7 +10,19 @@
 
 ---
 
-## What we did this session (Session 5)
+## What we did this session (Session 6)
+
+### Save My Seat — Stadium Seat PWA (v12.29)
+- Removed QR codes — GPS is primary detection, OCR is fallback
+- Found & added ABN: **Luck Dragon Pty Ltd — ABN 64 697 434 898** (corrected "Lucky Dragon" → "Luck Dragon")
+- Full code audit: fixed onboard GPS (was hardcoding bay), blank default seat, copyLink fallback
+- All features verified: OTP login, GPS detection (6 venues), OCR scanner, hold/away/release, offline queue, crew realtime, push notifications, legal pages
+- **Repo:** `LuckDragonAsgard/savemyseat` | **RESUME-HERE:** `docs/RESUME-HERE.md`
+- **Next:** Live device test
+
+---
+
+## What we did last session (Session 5)
 
 ### Clubhouse — Sports Club Platform (tasks #34–45)
 
@@ -62,6 +74,7 @@ All 45 tasks complete. Full feature set live at https://clubhouse-e5e.pages.dev
 | Carnival Timing | https://carnivaltiming.com | v8.5.2 |
 | Sport Carnival | https://sportcarnival.com.au | draw/results live |
 | School Sport Portal | https://schoolsportportal.com.au | landing only — app not built |
+| **Save My Seat** | https://savemyseat.au | v12.29 live — GPS+OCR seat detection PWA |
 | Asgard | https://asgard.luckdragon.io | live |
 | Vault | https://asgard-vault.pgallivan.workers.dev | live |
 
@@ -182,5 +195,6 @@ I'm Paddy, PE teacher at WPS. Main projects right now:
 - **School Sport Portal** (landing only, app not built yet)
 - **KBT Trivia** (asset pipeline + Google Slides)
 - **Superleague Yeah v4** (AFL fantasy draft, v4.28 live)
+- **Save My Seat** (stadium seat-holding PWA, v12.29 live — RESUME: https://raw.githubusercontent.com/LuckDragonAsgard/savemyseat/main/docs/RESUME-HERE.md)
 
 Vault PIN: `535554`. All credentials in vault at https://asgard-vault.pgallivan.workers.dev
