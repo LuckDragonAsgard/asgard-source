@@ -142,6 +142,7 @@ Full live state: `https://asgard.pgallivan.workers.dev` (PIN 535554) → Product
 
 Key rows updated this session:
 - id=31 Super League Yeah — 97%, opp matchup fixed
+- id=36 Horse Race Tipping — 90%, all infra done; RESUME: https://raw.githubusercontent.com/PaddyGallivan/racetipping-api/main/RESUME-HERE.md
 - id=46 Asgard — model badge + email FR
 - id=48 LessonLab — compliance complete
 - id=53 WPS Hub v3 — PIN rotated, fail-closed
