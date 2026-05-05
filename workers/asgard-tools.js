@@ -636,6 +636,52 @@ export default {
       }
     }
 
+
+    // /brief — single call returns everything Claude needs to start a session
+    // GET /brief?pin=535554  or  POST with X-Pin header
+    if (pathname === '/brief') {
+      const pin = new URL(request.url).searchParams.get('pin') || request.headers.get('X-Pin') || '';
+      if (pin !== env.PADDY_PIN && pin !== env.JACKY_PIN) return Response.json({error:'Forbidden'},{status:403,headers:cors});
+      try {
+        // Fetch HANDOVER.md, CLAUDE.md and D1 product states in parallel
+        const [handoverRes, claudeRes, d1Res] = await Promise.all([
+          fetch('https://raw.githubusercontent.com/LuckDragonAsgard/asgard-source/main/docs/HANDOVER.md'),
+          fetch('https://raw.githubusercontent.com/LuckDragonAsgard/asgard-source/main/CLAUDE.md'),
+          fetch('https://asgard-brain.luckdragon.io/d1/query', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json','X-Pin':pin},
+            body: JSON.stringify({sql:"SELECT name, status, progress, next_action FROM products WHERE status != 'archived' ORDER BY progress DESC LIMIT 50"})
+          })
+        ]);
+        const handover = await handoverRes.text();
+        const claudeMd = await claudeRes.text();
+        let products = [];
+        try { const d1J = await d1Res.json(); products = d1J.results || d1J.result || []; } catch(e) {}
+
+        const productTable = products.length
+          ? '## Live product states (from D1)\n' + products.map(p => `- **${p.name}** — ${p.status} ${p.progress||0}% — Next: ${p.next_action||'?'}`).join('\n')
+          : '';
+
+        const brief = [
+          '# ASGARD BRIEF — ' + new Date().toISOString().split('T')[0],
+          '',
+          productTable,
+          '',
+          '---',
+          '',
+          handover,
+          '',
+          '---',
+          '',
+          claudeMd
+        ].join('\n');
+
+        return new Response(brief, { headers: {...cors, 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store'} });
+      } catch(e) {
+        return Response.json({error:'Brief failed', detail:e.message},{status:500,headers:cors});
+      }
+    }
+
     return new Response('Not found', { status: 404, headers: cors });
   }
 };
