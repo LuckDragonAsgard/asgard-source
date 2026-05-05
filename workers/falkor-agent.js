@@ -102,7 +102,9 @@ function routeIntent(text) {
     return { agent: 'sport', action: 'summary' };
   if (/\b(trivia|kbt|kow|brainer|quiz|question|pub quiz|game|host|players|leaderboard|event tonight|next event)\b/.test(t))
     return { agent: 'kbt', action: 'query' };
-  if (/\b(deploy|fix worker|broken worker|fleet|falkor-code|self.heal|redeploy|worker health|which workers|code agent)\b/.test(t))
+  if (/\b(self\.heal|worker health|which workers|heal falkor)\b/.test(t))
+    return { agent: 'code', action: 'heal' };
+  if (/\b(deploy|fix worker|broken worker|fleet|falkor-code|redeploy|code agent)\b/.test(t))
     return { agent: 'code', action: 'summary' };
   if (/(lesson plan|plan.*week|week.*plan|plan.*lesson|what should i teach|teaching plan|activities for|session plan|plan.*pe|pe.*plan|plan.*class|class.*plan)/.test(t))
     return { agent: 'school', action: 'lesson_week' };
@@ -137,7 +139,10 @@ async function callSubAgent(agentKey, action, text, pin, aiPin) {
       case 'kbt':
         return fetch(`${baseUrl}/summary`, { headers: { 'X-Pin': pin } }).then(r => r.ok ? r.json() : null);
       case 'code':
-        return fetch(`${baseUrl}/summary`, { headers: { 'X-Pin': pin } }).then(r => r.ok ? r.json() : null);
+        return fetch(action === 'heal' ? `${baseUrl}/heal` : `${baseUrl}/summary`, {
+          method: action === 'heal' ? 'POST' : 'GET',
+          headers: { 'X-Pin': pin },
+        }).then(r => r.ok ? r.json() : null).catch(() => null);
       case 'brain':
         return fetch(`${baseUrl}/recall`, {
           method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Pin': pin },
