@@ -582,6 +582,40 @@ export default {
       }
     }
 
+
+    // /admin/log-trap — auto-append new traps to CLAUDE.md on GitHub
+    // POST { trap: "description", product: "product name" }  X-Pin
+    if (pathname === '/admin/log-trap' && request.method === 'POST') {
+      const pin = request.headers.get('X-Pin');
+      if (pin !== env.PADDY_PIN && pin !== env.JACKY_PIN) return Response.json({error:'Forbidden'},{status:403,headers:cors});
+      let body; try { body = await request.json(); } catch { return Response.json({error:'Invalid JSON'},{status:400,headers:cors}); }
+      const { trap, product = 'unknown' } = body;
+      if (!trap) return Response.json({error:'trap required'},{status:400,headers:cors});
+      try {
+        const ghToken = env.GITHUB_TOKEN;
+        const apiBase = 'https://api.github.com/repos/LuckDragonAsgard/asgard-source/contents/CLAUDE.md';
+        const ghHeaders = { 'Authorization':'Bearer '+ghToken,'Accept':'application/vnd.github.v3+json','User-Agent':'asgard-tools','Content-Type':'application/json' };
+        const getRes = await fetch(apiBase, { headers: ghHeaders });
+        if (!getRes.ok) return Response.json({error:'Could not fetch CLAUDE.md',status:getRes.status},{status:502,headers:cors});
+        const getJ = await getRes.json();
+        const currentSha = getJ.sha;
+        const currentContent = atob(getJ.content.replace(/\n/g,''));
+        const datestamp = new Date().toISOString().split('T')[0];
+        const newLine = '- ' + trap.replace(/`/g,"'") + ' [auto: ' + product + ', ' + datestamp + ']';
+        let updated = currentContent.replace('## Self-improvement rule', newLine + '\n## Self-improvement rule');
+        if (updated === currentContent) updated = currentContent.trimEnd() + '\n\n' + newLine + '\n';
+        const enc = new TextEncoder(); const bytes = enc.encode(updated);
+        let bin = ''; for (let i=0;i<bytes.length;i++) bin+=String.fromCharCode(bytes[i]);
+        const b64 = btoa(bin);
+        const putRes = await fetch(apiBase, { method:'PUT', headers:ghHeaders, body: JSON.stringify({ message:'auto: Falkor trap — '+product, content:b64, sha:currentSha }) });
+        const putJ = await putRes.json();
+        if (!putJ.commit) return Response.json({error:'GitHub push failed',detail:JSON.stringify(putJ).slice(0,300)},{status:502,headers:cors});
+        return Response.json({ ok:true, sha:putJ.commit.sha, trap, product, datestamp }, {headers:cors});
+      } catch(e) {
+        return Response.json({error:'log-trap failed',detail:e.message},{status:500,headers:cors});
+      }
+    }
+
     return new Response('Not found', { status: 404, headers: cors });
   }
 };
@@ -604,7 +638,7 @@ async function _logError(env, worker, endpoint, message, detail, stack) {
 
 async function _autoCommitSource(env, worker_name, code) {
   if (!env.GITHUB_TOKEN) throw new Error('GITHUB_TOKEN missing');
-  const owner = 'PaddyGallivan';
+  const owner = 'LuckDragonAsgard';
   const repo = 'asgard-source';
   const path = 'workers/' + worker_name + '.js';
   const url = 'https://api.github.com/repos/' + owner + '/' + repo + '/contents/' + path;
