@@ -4,7 +4,7 @@
 // v1.2.1: Fixed encoding bug + skip_auto_commit to prevent webhook→deploy→commit loop
 // v1.3.0: Extended fleet to all ventures (CT, SSP, SC) + email alerts + /ventures endpoint
 
-const VERSION = '1.4.0';
+const VERSION = '1.5.0';
 const VAULT_URL = 'https://asgard-vault.pgallivan.workers.dev';
 const PUSH_URL = 'https://falkor-push.luckdragon.io';
 const GITHUB_REPO = 'LuckDragonAsgard/asgard-source';
@@ -473,6 +473,12 @@ export default {
         critical_broken: broken.filter(w => w.critical).map(w => w.name),
         ventures: Object.entries(ventureHealth).map(([k, v]) => `${k}: ${v.healthy}/${v.total}`),
       });
+    }
+
+    if (path === '/heal') {
+      const result = await selfHeal(env);
+      await logRun(env.DB, 'self-heal-chat', null, result.broken === 0 ? 'all-healthy' : 'healed', result);
+      return json(result);
     }
 
     return json({ error: 'Not found' }, 404);
